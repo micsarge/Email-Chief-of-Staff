@@ -1,0 +1,5 @@
+# Add Python dependencies here as the project evolves.
+# Example:
+# imapclient
+# python-dotenv
+# openai
