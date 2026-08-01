@@ -13,11 +13,14 @@ if str(ROOT) not in sys.path:
 from src.config import load_proton_bridge_config
 from src.mailbox import MailboxReader
 from src.proton_bridge import ProtonBridgeClient
+from src.audit_log import append_audit_event, read_recent_audit_events
+from src.reconcile import generate_reconciliation_report
 from src.review import ReviewItem, ReviewQueue
 from src.rules import RuleEngine, load_rules_from_yaml
 
 app = Flask(__name__)
 STATE_PATH = Path(__file__).resolve().parent / "review_state.json"
+AUDIT_LOG_PATH = Path(__file__).resolve().parent / "audit_log.jsonl"
 
 HTML = """
 <!doctype html>
@@ -32,6 +35,9 @@ HTML = """
       .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin: 1.25rem 0 1.5rem; }
       .stat { background: white; padding: 1rem; border-radius: 12px; box-shadow: 0 4px 16px rgba(0,0,0,0.06); }
       .card { background: white; border: 1px solid #e3e8f1; border-radius: 12px; padding: 1rem; margin-bottom: 1rem; box-shadow: 0 4px 16px rgba(0,0,0,0.06); }
+      .audit-card { background: white; border: 1px solid #e3e8f1; border-radius: 12px; padding: 1rem; margin-bottom: 1rem; box-shadow: 0 4px 16px rgba(0,0,0,0.06); }
+      .audit-entry { padding: 0.5rem 0; border-bottom: 1px solid #edf1f7; }
+      .audit-entry:last-child { border-bottom: none; }
       .pill { display: inline-block; padding: 0.25rem 0.6rem; border-radius: 999px; font-size: 0.8rem; font-weight: 700; margin-bottom: 0.6rem; }
       .pill-delete { background: #ffe7e7; color: #a42b2b; }
       .pill-archive { background: #eaf4ff; color: #2457a3; }
@@ -54,10 +60,15 @@ HTML = """
         <p>Review your inbox in a calm, decision-first dashboard with suggested next steps.</p>
         <div style="margin-top: 1rem;">
           <button class="btn-approve" onclick="cleanupInbox()">Clean matching inbox items</button>
+          <button class="btn-reject" onclick="cleanupSundayTrash()">Clean Up Sunday (empty Trash)</button>
           <div class="status" id="status"></div>
         </div>
       </div>
       <div class="stats" id="stats"></div>
+      <div class="audit-card">
+        <h2>Audit Log</h2>
+        <div id="audit"></div>
+      </div>
       <div id="items"></div>
     </div>
     <script>
@@ -65,8 +76,10 @@ HTML = """
         const response = await fetch('/api/review');
         const data = await response.json();
         const stats = document.getElementById('stats');
+        const audit = document.getElementById('audit');
         const items = document.getElementById('items');
         stats.innerHTML = '';
+        audit.innerHTML = '';
         items.innerHTML = '';
 
         const total = data.totalMessages;
@@ -83,6 +96,19 @@ HTML = """
           <div class="stat"><strong>${respondCount}</strong><div>Respond suggestions</div></div>
         `;
         stats.innerHTML = statMarkup;
+
+        if (!data.audit || !data.audit.length) {
+          audit.innerHTML = '<div class="meta">No actions recorded yet.</div>';
+        } else {
+          data.audit.forEach(entry => {
+            const row = document.createElement('div');
+            row.className = 'audit-entry';
+            const details = entry.details || {};
+            const summary = details.summary || details.message || JSON.stringify(details);
+            row.innerHTML = `<div><strong>${entry.event}</strong></div><div class="meta">${entry.timestamp}</div><div class="meta">${summary}</div>`;
+            audit.appendChild(row);
+          });
+        }
 
         if (!data.recommendations.length) {
           items.innerHTML = '<div class="card"><p>No recommendations right now.</p></div>';
@@ -140,6 +166,26 @@ HTML = """
         }
       }
 
+      async function cleanupSundayTrash() {
+        const statusEl = document.getElementById('status');
+        statusEl.textContent = 'Running Clean Up Sunday...';
+        statusEl.className = 'status running';
+        try {
+          const response = await fetch('/api/review/cleanup-sunday', { method: 'POST' });
+          const data = await response.json();
+          if (!data.ok) {
+            statusEl.textContent = data.message || 'Clean Up Sunday is only available on Sunday.';
+            statusEl.className = 'status error';
+            return;
+          }
+          statusEl.textContent = 'Clean Up Sunday removed ' + data.purged + ' message(s) from Trash.';
+          statusEl.className = 'status';
+        } catch (error) {
+          statusEl.textContent = 'Clean Up Sunday failed. Check the server logs for details.';
+          statusEl.className = 'status error';
+        }
+      }
+
       loadItems();
     </script>
   </body>
@@ -190,6 +236,7 @@ def review_api():
             "messagesSinceYesterday": len(messages),
             "categories": categories,
             "recommendations": recommendations,
+        "audit": read_recent_audit_events(AUDIT_LOG_PATH, limit=15),
         }
     )
 
@@ -204,7 +251,17 @@ def approve_item(message_id: str):
         if item and item.result.action:
             cfg = load_proton_bridge_config()
             client = ProtonBridgeClient(cfg)
-            client.apply_action(message_id, item.result.action.action)
+            applied = client.apply_action(message_id, item.result.action.action)
+            append_audit_event(
+                AUDIT_LOG_PATH,
+                "approve_action",
+                {
+                    "message_id": message_id,
+                    "action": item.result.action.action,
+                    "applied": applied,
+                    "summary": f"Approved {item.result.action.action} for message {message_id} (applied={applied}).",
+                },
+            )
     return jsonify({"ok": ok, "message_id": message_id})
 
 
@@ -232,7 +289,50 @@ def cleanup_all_items():
             item.approved = False
 
     queue.save_state()
+    append_audit_event(
+        AUDIT_LOG_PATH,
+        "cleanup_inbox",
+        {
+            "applied": applied,
+            "counts": counts,
+            "total_messages_seen": len(messages),
+            "summary": f"Cleanup applied to {applied} messages (delete={counts.get('delete', 0)}, archive={counts.get('archive', 0)}, respond={counts.get('respond', 0)}).",
+        },
+    )
     return jsonify({"ok": True, "applied": applied, "counts": counts, "totalMessages": len(messages)})
+
+
+@app.post("/api/review/cleanup-sunday")
+def cleanup_sunday_trash():
+    today = datetime.now().date()
+    if today.weekday() != 6:
+        append_audit_event(
+            AUDIT_LOG_PATH,
+            "cleanup_sunday_skipped",
+            {"today": today.isoformat(), "summary": "Clean Up Sunday was skipped because today is not Sunday."},
+        )
+        return jsonify(
+            {
+                "ok": False,
+                "purged": 0,
+                "message": "Clean Up Sunday only runs on Sunday.",
+                "today": today.isoformat(),
+            }
+        )
+
+    cfg = load_proton_bridge_config()
+    client = ProtonBridgeClient(cfg)
+    purged = client.purge_trash()
+    append_audit_event(
+        AUDIT_LOG_PATH,
+        "cleanup_sunday",
+        {
+            "today": today.isoformat(),
+            "purged": purged,
+            "summary": f"Clean Up Sunday permanently removed {purged} message(s) from Trash.",
+        },
+    )
+    return jsonify({"ok": True, "purged": purged, "today": today.isoformat()})
 
 
 @app.post("/api/review/<message_id>/reject")
@@ -240,7 +340,24 @@ def reject_item(message_id: str):
     queue = ReviewQueue(state_path=str(STATE_PATH))
     queue.load_state()
     ok = queue.reject(message_id)
+    if ok:
+        append_audit_event(
+            AUDIT_LOG_PATH,
+            "reject_action",
+        {"message_id": message_id, "summary": f"Rejected action for message {message_id}."},
+        )
     return jsonify({"ok": ok, "message_id": message_id})
+
+
+@app.get("/api/audit")
+def audit_api():
+    return jsonify({"events": read_recent_audit_events(AUDIT_LOG_PATH, limit=50)})
+
+
+@app.get("/api/reconcile")
+def reconcile_api():
+  report = generate_reconciliation_report(AUDIT_LOG_PATH)
+  return jsonify(report)
 
 
 if __name__ == "__main__":

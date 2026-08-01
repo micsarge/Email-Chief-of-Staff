@@ -16,6 +16,7 @@ class ProtonBridgeConfigTests(unittest.TestCase):
                 "PROTON_BRIDGE_USERNAME": "user@example.com",
                 "PROTON_BRIDGE_PASSWORD": "secret",
                 "PROTON_BRIDGE_MAILBOX": "INBOX",
+                "PROTON_BRIDGE_TRASH_MAILBOX": "Trash",
             },
             clear=True,
         ):
@@ -26,6 +27,7 @@ class ProtonBridgeConfigTests(unittest.TestCase):
         self.assertEqual(config.username, "user@example.com")
         self.assertEqual(config.password, "secret")
         self.assertEqual(config.mailbox, "INBOX")
+        self.assertEqual(config.trash_mailbox, "Trash")
 
     def test_config_requires_username_and_password(self):
         with patch.dict(os.environ, {"PROTON_BRIDGE_HOST": "localhost"}, clear=True):
@@ -95,6 +97,65 @@ class ProtonBridgeClientTests(unittest.TestCase):
         fake_imap.copy.assert_called_once_with("42", "Archive")
         fake_imap.store.assert_called_once_with("42", "+FLAGS.SILENT", "\\Deleted")
         fake_imap.expunge.assert_called_once()
+
+    def test_apply_action_delete_moves_message_to_trash_first(self):
+        fake_imap = Mock()
+        fake_imap.copy.return_value = ("OK", [])
+        fake_imap.store.return_value = ("OK", [])
+        fake_imap.expunge.return_value = ("OK", [])
+
+        client = ProtonBridgeClient(
+            ProtonBridgeConfig(
+                host="127.0.0.1",
+                port=1143,
+                username="user@example.com",
+                password="secret",
+                trash_mailbox="Trash",
+            )
+        )
+        client.imap_connection = fake_imap
+
+        self.assertTrue(client.apply_action("42", "delete"))
+
+        fake_imap.create.assert_called_once_with("Trash")
+        fake_imap.copy.assert_called_once_with("42", "Trash")
+        fake_imap.store.assert_called_once_with("42", "+FLAGS.SILENT", "\\Deleted")
+        fake_imap.expunge.assert_called_once()
+
+    def test_purge_trash_marks_all_messages_deleted_and_expunge(self):
+        fake_imap = Mock()
+        fake_imap.select.return_value = ("OK", [])
+        fake_imap.search.return_value = ("OK", [b"1 2 3"])
+        fake_imap.store.return_value = ("OK", [])
+        fake_imap.expunge.return_value = ("OK", [])
+
+        client = ProtonBridgeClient(
+            ProtonBridgeConfig(host="127.0.0.1", port=1143, username="user@example.com", password="secret")
+        )
+        client.imap_connection = fake_imap
+
+        purged = client.purge_trash()
+
+        self.assertEqual(purged, 3)
+        fake_imap.select.assert_any_call("Trash")
+        fake_imap.store.assert_any_call(b"1", "+FLAGS.SILENT", "\\Deleted")
+        fake_imap.store.assert_any_call(b"2", "+FLAGS.SILENT", "\\Deleted")
+        fake_imap.store.assert_any_call(b"3", "+FLAGS.SILENT", "\\Deleted")
+        fake_imap.expunge.assert_called_once()
+        fake_imap.select.assert_any_call("INBOX")
+
+    def test_purge_trash_returns_zero_when_trash_unavailable(self):
+        fake_imap = Mock()
+        fake_imap.select.side_effect = [("NO", [b"no such mailbox"]), ("OK", [])]
+
+        client = ProtonBridgeClient(
+            ProtonBridgeConfig(host="127.0.0.1", port=1143, username="user@example.com", password="secret")
+        )
+        client.imap_connection = fake_imap
+
+        purged = client.purge_trash()
+
+        self.assertEqual(purged, 0)
 
 
 if __name__ == "__main__":

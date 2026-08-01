@@ -15,6 +15,7 @@ class ProtonBridgeConfig:
     username: str
     password: str
     mailbox: str = "INBOX"
+    trash_mailbox: str = "Trash"
 
     @classmethod
     def from_env(cls) -> "ProtonBridgeConfig":
@@ -23,11 +24,19 @@ class ProtonBridgeConfig:
         username = os.getenv("PROTON_BRIDGE_USERNAME")
         password = os.getenv("PROTON_BRIDGE_PASSWORD")
         mailbox = os.getenv("PROTON_BRIDGE_MAILBOX", "INBOX")
+        trash_mailbox = os.getenv("PROTON_BRIDGE_TRASH_MAILBOX", "Trash")
 
         if not username or not password:
             raise ProtonBridgeConnectionError("PROTON_BRIDGE_USERNAME and PROTON_BRIDGE_PASSWORD are required")
 
-        return cls(host=host, port=port, username=username, password=password, mailbox=mailbox)
+        return cls(
+            host=host,
+            port=port,
+            username=username,
+            password=password,
+            mailbox=mailbox,
+            trash_mailbox=trash_mailbox,
+        )
 
 
 class ProtonBridgeClient:
@@ -79,6 +88,9 @@ class ProtonBridgeClient:
                 return True
 
             if action == "delete":
+                folder_name = self.config.trash_mailbox
+                imap.create(folder_name)
+                imap.copy(message_id, folder_name)
                 imap.store(message_id, "+FLAGS.SILENT", "\\Deleted")
                 imap.expunge()
                 return True
@@ -86,3 +98,33 @@ class ProtonBridgeClient:
             return False
 
         return False
+
+    def purge_trash(self) -> int:
+        imap = self._ensure_imap()
+        original_mailbox = self.config.mailbox
+        trash_mailbox = self.config.trash_mailbox
+
+        try:
+            status, _ = imap.select(trash_mailbox)
+            if status != "OK":
+                return 0
+
+            status, message_ids_raw = imap.search(None, "ALL")
+            if status != "OK":
+                return 0
+
+            message_ids = message_ids_raw[0].split() if message_ids_raw and message_ids_raw[0] else []
+            for message_id in message_ids:
+                imap.store(message_id, "+FLAGS.SILENT", "\\Deleted")
+
+            if message_ids:
+                imap.expunge()
+
+            return len(message_ids)
+        except Exception:
+            return 0
+        finally:
+            try:
+                imap.select(original_mailbox)
+            except Exception:
+                pass

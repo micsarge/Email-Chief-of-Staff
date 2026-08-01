@@ -21,12 +21,19 @@
 - Track action history for transparency
 - Persist review decisions locally so approvals and rejections survive refreshes and restarts
 - Support full-inbox scanning and one-click cleanup of matching messages based on rules
+- Display audit history in-app so each cleanup and review decision is traceable
+- Expose reconciliation snapshots to compare live folder counts and recent actions
 
 ## Phase 4 — Reliability and Safety
 - Add logging, error handling, retry behavior, and audit trails
 - Introduce sandboxing and confirmation rules for destructive actions
 - Improve the rule language and user customization options
+- Use Trash-first delete semantics (recoverable by default)
+- Add Sunday-only permanent Trash purge and weekly task automation support
+- Harden cleanup behavior for stale or missing IMAP message IDs
 
 ## Phase 5 — Expansion
 - Add richer summarization, follow-up drafting, and workflow automation
 - Explore deeper integrations while keeping privacy and user control central
+- Add a daily/weekly reconciliation report view with trend deltas across INBOX, Trash, Archive, and All Mail
+- Add configurable schedule settings for cleanup windows and run-time notifications
