@@ -13,7 +13,7 @@ The assistant should behave less like a fully autonomous agent and more like a t
 
 ## Current Scope
 
-This repository currently contains project scaffolding and planning documents for the MVP. The first milestones focus on mailbox connectivity, summarization, and safe rule execution rather than fully autonomous deletion or reply behavior.
+This repository now contains a working prototype for a human-in-the-loop inbox triage workflow. The MVP focuses on mailbox connectivity, rules-based recommendations, and a review dashboard that remembers approval or rejection decisions between requests.
 
 ## Proposed Architecture
 
@@ -26,10 +26,11 @@ This repository currently contains project scaffolding and planning documents fo
 ## Getting Started
 
 1. Review the roadmap and architecture notes.
-2. Set up Proton Bridge and your mailbox access details.
-3. Implement the mail connector and basic rules engine.
-4. Add a simple UI for reviewing recommendations.
+2. Copy .env.example to .env and fill in your Proton Bridge values.
+3. Install dependencies with pip install -r requirements.txt.
+4. Run the review UI with python app/main.py.
+5. Open http://127.0.0.1:5000/ to review recommendations.
 
 ## Notes
 
-Security and privacy are first-class design concerns. The initial version should avoid irreversible actions by default and require explicit approval for destructive behavior.
+Security and privacy are first-class design concerns. The current prototype avoids irreversible actions by default and requires explicit approval for destructive behavior. Review decisions are persisted locally so the dashboard can reflect prior choices during subsequent runs.

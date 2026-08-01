@@ -26,3 +26,6 @@ Thumbs.db
 build/
 dist/
 coverage/
+
+# Local review state
+app/review_state.json

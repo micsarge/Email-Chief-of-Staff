@@ -13,3 +13,4 @@ The long-term goal is to create a personal inbox operating system that helps a u
 - Suggest archiving or deleting low-value notifications
 - Move newsletters and recurring messages into designated folders
 - Highlight important messages that need follow-up
+- Keep a transparent, human-approved review trail for inbox decisions
