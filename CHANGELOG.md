@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 - Basic folder structure for source code, docs, and future UI work
 - Local persistence for review approvals and rejections in the dashboard workflow
 - Regression tests covering persisted review state behavior
+- Full-inbox scanning and one-click cleanup of messages that match the configured rules
 
 ## [0.1.0] - 2026-07-31
 

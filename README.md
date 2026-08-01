@@ -29,7 +29,7 @@ This repository now contains a working prototype for a human-in-the-loop inbox t
 2. Copy .env.example to .env and fill in your Proton Bridge values.
 3. Install dependencies with pip install -r requirements.txt.
 4. Run the review UI with python app/main.py.
-5. Open http://127.0.0.1:5000/ to review recommendations.
+5. Open http://127.0.0.1:5000/ to review recommendations and trigger the full-inbox cleanup action.
 
 ## Notes
 

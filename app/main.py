@@ -14,7 +14,7 @@ from src.config import load_proton_bridge_config
 from src.mailbox import MailboxReader
 from src.proton_bridge import ProtonBridgeClient
 from src.review import ReviewItem, ReviewQueue
-from src.rules import RuleEngine, build_default_rules
+from src.rules import RuleEngine, load_rules_from_yaml
 
 app = Flask(__name__)
 STATE_PATH = Path(__file__).resolve().parent / "review_state.json"
@@ -48,6 +48,9 @@ HTML = """
       <div class="hero">
         <h1>Email Chief of Staff</h1>
         <p>Review your inbox in a calm, decision-first dashboard with suggested next steps.</p>
+        <div style="margin-top: 1rem;">
+          <button class="btn-approve" onclick="cleanupInbox()">Clean matching inbox items</button>
+        </div>
       </div>
       <div class="stats" id="stats"></div>
       <div id="items"></div>
@@ -112,6 +115,13 @@ HTML = """
         loadItems();
       }
 
+      async function cleanupInbox() {
+        const response = await fetch('/api/review/cleanup', { method: 'POST' });
+        const data = await response.json();
+        alert(data.applied + ' matching messages were cleaned.');
+        loadItems();
+      }
+
       loadItems();
     </script>
   </body>
@@ -124,18 +134,13 @@ def index():
     return render_template_string(HTML)
 
 
-@app.get("/api/review")
-def review_api():
+def build_review_queue():
     cfg = load_proton_bridge_config()
     client = ProtonBridgeClient(cfg)
     reader = MailboxReader(client)
-    engine = RuleEngine(build_default_rules())
+    engine = RuleEngine(load_rules_from_yaml())
 
-    today = date.today()
-    yesterday = today - timedelta(days=1)
-    yesterday_str = yesterday.strftime("%d-%b-%Y")
-
-    messages = reader.fetch_messages_since(limit=50, since_date=yesterday_str)
+    messages = reader.fetch_all_messages()
     queue = ReviewQueue(state_path=str(STATE_PATH))
     for message in messages:
         existing = [item for item in queue.items if item.message.id == message.id]
@@ -143,6 +148,12 @@ def review_api():
             continue
         queue.add(ReviewItem(message=message, result=engine.evaluate(message)))
     queue.save_state()
+    return queue, messages
+
+
+@app.get("/api/review")
+def review_api():
+    queue, messages = build_review_queue()
 
     recommendations = [item for item in queue.to_summary() if item["action"] != "none"]
 
@@ -170,7 +181,33 @@ def approve_item(message_id: str):
     queue = ReviewQueue(state_path=str(STATE_PATH))
     queue.load_state()
     ok = queue.approve(message_id)
+    if ok:
+        item = next((entry for entry in queue.items if entry.message.id == message_id), None)
+        if item and item.result.action:
+            cfg = load_proton_bridge_config()
+            client = ProtonBridgeClient(cfg)
+            client.apply_action(message_id, item.result.action.action)
     return jsonify({"ok": ok, "message_id": message_id})
+
+
+@app.post("/api/review/cleanup")
+def cleanup_all_items():
+    queue, messages = build_review_queue()
+    cfg = load_proton_bridge_config()
+    client = ProtonBridgeClient(cfg)
+
+    applied = 0
+    for item in queue.items:
+        if item.approved is not None:
+            continue
+        if item.result.action is None:
+            continue
+        if client.apply_action(item.message.id, item.result.action.action):
+            item.approved = True
+            applied += 1
+
+    queue.save_state()
+    return jsonify({"ok": True, "applied": applied, "totalMessages": len(messages)})
 
 
 @app.post("/api/review/<message_id>/reject")

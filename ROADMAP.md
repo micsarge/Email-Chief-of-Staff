@@ -20,6 +20,7 @@
 - Allow users to approve or reject recommendations
 - Track action history for transparency
 - Persist review decisions locally so approvals and rejections survive refreshes and restarts
+- Support full-inbox scanning and one-click cleanup of matching messages based on rules
 
 ## Phase 4 — Reliability and Safety
 - Add logging, error handling, retry behavior, and audit trails
