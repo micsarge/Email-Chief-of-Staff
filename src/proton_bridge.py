@@ -69,17 +69,20 @@ class ProtonBridgeClient:
 
     def apply_action(self, message_id: str, action: str) -> bool:
         imap = self._ensure_imap()
-        if action == "archive":
-            folder_name = "Archive"
-            imap.create(folder_name)
-            imap.copy(message_id, folder_name)
-            imap.store(message_id, "+FLAGS.SILENT", "\\Deleted")
-            imap.expunge()
-            return True
+        try:
+            if action == "archive":
+                folder_name = "Archive"
+                imap.create(folder_name)
+                imap.copy(message_id, folder_name)
+                imap.store(message_id, "+FLAGS.SILENT", "\\Deleted")
+                imap.expunge()
+                return True
 
-        if action == "delete":
-            imap.store(message_id, "+FLAGS.SILENT", "\\Deleted")
-            imap.expunge()
-            return True
+            if action == "delete":
+                imap.store(message_id, "+FLAGS.SILENT", "\\Deleted")
+                imap.expunge()
+                return True
+        except Exception:
+            return False
 
         return False

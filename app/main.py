@@ -40,6 +40,10 @@ HTML = """
       .btn-approve { background: #2f7545; color: white; }
       .btn-reject { background: #e3e8f1; color: #20304a; }
       .meta { color: #5f6c82; font-size: 0.95rem; margin-top: 0.35rem; }
+      .status { margin-top: 0.75rem; color: #0f172a; font-weight: 600; display: inline-block; padding: 0.4rem 0.7rem; border-radius: 999px; background: rgba(255,255,255,0.9); }
+      .status.running { color: #7c2d12; background: #fef3c7; }
+      .status.error { color: #7f1d1d; background: #fee2e2; }
+      .summary-list { margin-top: 0.4rem; color: #20304a; }
       h2 { margin-top: 0; }
     </style>
   </head>
@@ -50,6 +54,7 @@ HTML = """
         <p>Review your inbox in a calm, decision-first dashboard with suggested next steps.</p>
         <div style="margin-top: 1rem;">
           <button class="btn-approve" onclick="cleanupInbox()">Clean matching inbox items</button>
+          <div class="status" id="status"></div>
         </div>
       </div>
       <div class="stats" id="stats"></div>
@@ -71,8 +76,8 @@ HTML = """
         const respondCount = data.categories.respond;
 
         const statMarkup = `
-          <div class="stat"><strong>${total}</strong><div>Messages in view</div></div>
-          <div class="stat"><strong>${sinceYesterday}</strong><div>Seen since yesterday</div></div>
+          <div class="stat"><strong>${total}</strong><div>Messages still in INBOX</div></div>
+          <div class="stat"><strong>${sinceYesterday}</strong><div>Messages in current scan</div></div>
           <div class="stat"><strong>${deleteCount}</strong><div>Delete suggestions</div></div>
           <div class="stat"><strong>${archiveCount}</strong><div>Archive suggestions</div></div>
           <div class="stat"><strong>${respondCount}</strong><div>Respond suggestions</div></div>
@@ -116,10 +121,23 @@ HTML = """
       }
 
       async function cleanupInbox() {
-        const response = await fetch('/api/review/cleanup', { method: 'POST' });
-        const data = await response.json();
-        alert(data.applied + ' matching messages were cleaned.');
-        loadItems();
+        const statusEl = document.getElementById('status');
+        statusEl.textContent = 'Cleaning matching messages...';
+        statusEl.className = 'status running';
+        try {
+          const response = await fetch('/api/review/cleanup', { method: 'POST' });
+          const data = await response.json();
+          const summary = [];
+          if (data.counts.delete) summary.push(data.counts.delete + ' deleted');
+          if (data.counts.archive) summary.push(data.counts.archive + ' archived');
+          if (data.counts.respond) summary.push(data.counts.respond + ' responded');
+          statusEl.innerHTML = '<div>' + data.applied + ' matching messages were cleaned.</div><div class="summary-list">' + summary.join(', ') + '</div>';
+          statusEl.className = 'status';
+          loadItems();
+        } catch (error) {
+          statusEl.textContent = 'Cleanup failed. Check the server logs for details.';
+          statusEl.className = 'status error';
+        }
       }
 
       loadItems();
@@ -196,18 +214,25 @@ def cleanup_all_items():
     cfg = load_proton_bridge_config()
     client = ProtonBridgeClient(cfg)
 
+    counts = {"delete": 0, "archive": 0, "respond": 0}
     applied = 0
     for item in queue.items:
         if item.approved is not None:
             continue
         if item.result.action is None:
             continue
-        if client.apply_action(item.message.id, item.result.action.action):
+        action = item.result.action.action
+        if action not in counts:
+            counts[action] = 0
+        if client.apply_action(item.message.id, action):
             item.approved = True
             applied += 1
+            counts[action] += 1
+        else:
+            item.approved = False
 
     queue.save_state()
-    return jsonify({"ok": True, "applied": applied, "totalMessages": len(messages)})
+    return jsonify({"ok": True, "applied": applied, "counts": counts, "totalMessages": len(messages)})
 
 
 @app.post("/api/review/<message_id>/reject")

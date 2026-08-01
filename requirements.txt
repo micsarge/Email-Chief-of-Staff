@@ -1,5 +1,7 @@
 # Add Python dependencies here as the project evolves.
+python-dotenv
+Flask
+PyYAML
 # Example:
 # imapclient
-# python-dotenv
 # openai

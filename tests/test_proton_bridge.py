@@ -1,3 +1,4 @@
+import imaplib
 import os
 import unittest
 from unittest.mock import Mock, patch
@@ -64,6 +65,18 @@ class ProtonBridgeClientTests(unittest.TestCase):
         smtp_cls.assert_called_once_with("127.0.0.1", 1025)
         fake_smtp.starttls.assert_called_once()
         fake_smtp.login.assert_called_once_with("user@example.com", "secret")
+
+    def test_apply_action_returns_false_for_missing_message(self):
+        fake_imap = Mock()
+        fake_imap.create.return_value = ("OK", [])
+        fake_imap.copy.side_effect = imaplib.IMAP4.error("COPY command error: BAD [b'no such message']")
+
+        client = ProtonBridgeClient(
+            ProtonBridgeConfig(host="127.0.0.1", port=1143, username="user@example.com", password="secret")
+        )
+        client.imap_connection = fake_imap
+
+        self.assertFalse(client.apply_action("42", "archive"))
 
     def test_apply_action_moves_message_to_destination_folder(self):
         fake_imap = Mock()

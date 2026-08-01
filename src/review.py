@@ -18,8 +18,8 @@ class ReviewQueue:
     def __init__(self, items: Optional[List[ReviewItem]] = None, state_path: Optional[str] = None):
         self.items = list(items or [])
         self.state_path = Path(state_path) if state_path else None
-        if self.state_path is not None:
-            self.load_state()
+        if self.state_path is not None and not self.items:
+            self.load_state(hydrate_items=False)
 
     def add(self, item: ReviewItem) -> None:
         self.items.append(item)
@@ -47,23 +47,32 @@ class ReviewQueue:
         with self.state_path.open("w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2)
 
-    def load_state(self) -> None:
+    def load_state(self, hydrate_items: bool = True) -> dict:
         if self.state_path is None or not self.state_path.exists():
-            return
+            return {}
 
         if self.state_path.stat().st_size == 0:
-            return
+            return {}
 
         with self.state_path.open("r", encoding="utf-8") as handle:
             try:
                 payload = json.load(handle)
             except json.JSONDecodeError:
-                return
+                return {}
 
         if not isinstance(payload, list):
-            return
+            return {}
 
-        if not self.items:
+        state_by_id = {}
+        for entry in payload:
+            if not isinstance(entry, dict):
+                continue
+            message_id = entry.get("message_id")
+            if not message_id:
+                continue
+            state_by_id[message_id] = entry.get("approved")
+
+        if hydrate_items and not self.items:
             for entry in payload:
                 if not isinstance(entry, dict):
                     continue
@@ -79,12 +88,12 @@ class ReviewQueue:
                     action = RuleAction(action=entry.get("action"), reason=entry.get("reason") or "")
                 result = RuleResult(message=message, action=action)
                 self.items.append(ReviewItem(message=message, result=result, approved=entry.get("approved")))
-            return
+            return state_by_id
 
-        state_by_id = {entry.get("message_id"): entry.get("approved") for entry in payload if isinstance(entry, dict) and entry.get("message_id")}
         for item in self.items:
             if item.message.id in state_by_id:
                 item.approved = state_by_id[item.message.id]
+        return state_by_id
 
     def pending(self) -> List[ReviewItem]:
         return [item for item in self.items if item.approved is None]

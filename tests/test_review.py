@@ -44,6 +44,25 @@ class ReviewQueueTests(unittest.TestCase):
             if os.path.exists(state_path):
                 os.remove(state_path)
 
+    def test_queue_can_load_state_without_rehydrating_items(self):
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as handle:
+            state_path = handle.name
+
+        try:
+            message = MailMessage(id="4", subject="State", sender="sender@example.com", date="", preview="")
+            item = ReviewItem(message=message, result=RuleResult(message=message, action=RuleAction(action="delete", reason="Test")))
+            queue = ReviewQueue([item], state_path=state_path)
+            self.assertTrue(queue.approve("4"))
+            queue.save_state()
+
+            reloaded = ReviewQueue([], state_path=state_path)
+            state_map = reloaded.load_state(hydrate_items=False)
+            self.assertEqual(reloaded.items, [])
+            self.assertEqual(state_map["4"], True)
+        finally:
+            if os.path.exists(state_path):
+                os.remove(state_path)
+
 
 if __name__ == "__main__":
     unittest.main()

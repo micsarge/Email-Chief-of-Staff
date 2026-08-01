@@ -1,0 +1,35 @@
+rules:
+  - name: delete-old-informed-delivery
+    action: delete
+    reason: Older informed delivery notifications can be cleaned up.
+    match:
+      keywords:
+        - informed delivery
+      date: older-than-1-day
+
+  - name: delete-old-sender-notifications
+    action: delete
+    reason: Older notifications from selected senders can be cleaned up.
+    match:
+      providers:
+        - nextdoor
+        - homedepot
+        - indeed
+        - bose
+      date: older-than-1-day
+
+  - name: delete-old-usps-tracking
+    action: delete
+    reason: Past USPS tracking notices are no longer useful.
+    match:
+      keywords:
+        - usps tracking
+      date: before-today
+
+  - name: archive-fcc-license-notice
+    action: archive
+    reason: Appears to be an official FCC notice that may not need to stay in the inbox.
+    match:
+      keywords:
+        - fcc
+        - license
