@@ -8,6 +8,7 @@ rules:
       date: older-than-1-day
 
   - name: delete-old-sender-notifications
+    enabled: false
     action: delete
     reason: Older notifications from selected senders can be cleaned up.
     match:
@@ -16,6 +17,13 @@ rules:
         - homedepot
         - indeed
         - bose
+        - Hulu
+        - Bindertek
+        - Olander Earthworks
+        - Pensachi Company
+        - Agilite
+        - namecheap
+        - Chase
       date: older-than-1-day
 
   - name: delete-old-usps-tracking

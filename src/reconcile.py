@@ -22,8 +22,8 @@ def _mailbox_names(imap_connection) -> list[str]:
     return names
 
 
-def _count_folder(imap_connection, folder_name: str) -> dict:
-    selected = imap_connection.select(folder_name)
+def _count_folder(client: ProtonBridgeClient, folder_name: str) -> dict:
+    selected = client._select_mailbox(folder_name)
     if selected[0] != "OK":
         return {"folder": folder_name, "available": False, "messageCount": 0}
 
@@ -85,7 +85,7 @@ def generate_reconciliation_report(audit_log_path: Path) -> dict:
             deduped_targets.append(target)
 
     for target in deduped_targets:
-        folder_counts.append(_count_folder(imap, target))
+        folder_counts.append(_count_folder(client, target))
 
     recent_events = read_recent_audit_events(audit_log_path, limit=100)
     audit_summary = _summarize_audit(recent_events)

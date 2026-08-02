@@ -14,6 +14,7 @@
 - Summarize new emails and extract action items
 - Add a rules engine for simple categorization and recommendations
 - Support examples such as deleting older USPS informed delivery notices
+- Include multi-folder triage scans across INBOX and All Mail with dedupe safeguards
 
 ## Phase 3 — Review UI
 - Build a lightweight UI for showing summaries and suggested actions
@@ -31,6 +32,8 @@
 - Use Trash-first delete semantics (recoverable by default)
 - Add Sunday-only permanent Trash purge and weekly task automation support
 - Harden cleanup behavior for stale or missing IMAP message IDs
+- Restrict provider-based delete rules to sender identity to avoid accidental broad matches
+- Handle Proton-specific All Mail behavior so already-trashed items are not repeatedly reprocessed
 
 ## Phase 5 — Expansion
 - Add richer summarization, follow-up drafting, and workflow automation

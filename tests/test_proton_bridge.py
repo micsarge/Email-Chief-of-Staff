@@ -71,6 +71,8 @@ class ProtonBridgeClientTests(unittest.TestCase):
     def test_apply_action_returns_false_for_missing_message(self):
         fake_imap = Mock()
         fake_imap.create.return_value = ("OK", [])
+        fake_imap.fetch.return_value = ("NO", [])
+        fake_imap.uid.return_value = ("NO", [])
         fake_imap.copy.side_effect = imaplib.IMAP4.error("COPY command error: BAD [b'no such message']")
 
         client = ProtonBridgeClient(
@@ -82,6 +84,9 @@ class ProtonBridgeClientTests(unittest.TestCase):
 
     def test_apply_action_moves_message_to_destination_folder(self):
         fake_imap = Mock()
+        fake_imap.create.return_value = ("OK", [])
+        fake_imap.fetch.return_value = ("OK", [(b"42 (UID 123)", b"")])
+        fake_imap.uid.return_value = ("NO", [])
         fake_imap.copy.return_value = ("OK", [])
         fake_imap.store.return_value = ("OK", [])
         fake_imap.expunge.return_value = ("OK", [])
@@ -91,15 +96,19 @@ class ProtonBridgeClientTests(unittest.TestCase):
         )
         client.imap_connection = fake_imap
 
-        client.apply_action("42", "archive")
+        self.assertTrue(client.apply_action("42", "archive"))
 
         fake_imap.create.assert_called_once_with("Archive")
+        fake_imap.uid.assert_called_once_with("MOVE", "123", "Archive")
         fake_imap.copy.assert_called_once_with("42", "Archive")
         fake_imap.store.assert_called_once_with("42", "+FLAGS.SILENT", "\\Deleted")
         fake_imap.expunge.assert_called_once()
 
     def test_apply_action_delete_moves_message_to_trash_first(self):
         fake_imap = Mock()
+        fake_imap.create.return_value = ("OK", [])
+        fake_imap.fetch.return_value = ("OK", [(b"42 (UID 456)", b"")])
+        fake_imap.uid.return_value = ("NO", [])
         fake_imap.copy.return_value = ("OK", [])
         fake_imap.store.return_value = ("OK", [])
         fake_imap.expunge.return_value = ("OK", [])
@@ -118,9 +127,61 @@ class ProtonBridgeClientTests(unittest.TestCase):
         self.assertTrue(client.apply_action("42", "delete"))
 
         fake_imap.create.assert_called_once_with("Trash")
+        fake_imap.uid.assert_called_once_with("MOVE", "456", "Trash")
         fake_imap.copy.assert_called_once_with("42", "Trash")
         fake_imap.store.assert_called_once_with("42", "+FLAGS.SILENT", "\\Deleted")
         fake_imap.expunge.assert_called_once()
+
+    def test_apply_action_returns_false_when_move_and_copy_fail(self):
+        fake_imap = Mock()
+        fake_imap.create.return_value = ("OK", [])
+        fake_imap.fetch.return_value = ("OK", [(b"42 (UID 789)", b"")])
+        fake_imap.uid.return_value = ("NO", [])
+        fake_imap.copy.return_value = ("NO", [b"copy failed"])
+
+        client = ProtonBridgeClient(
+            ProtonBridgeConfig(host="127.0.0.1", port=1143, username="user@example.com", password="secret")
+        )
+        client.imap_connection = fake_imap
+
+        self.assertFalse(client.apply_action("42", "delete"))
+        fake_imap.expunge.assert_not_called()
+
+    def test_apply_action_uses_uid_move_when_available(self):
+        fake_imap = Mock()
+        fake_imap.create.return_value = ("OK", [])
+        fake_imap.fetch.return_value = ("OK", [(b"42 (UID 999)", b"")])
+        fake_imap.uid.return_value = ("OK", [b"moved"])
+
+        client = ProtonBridgeClient(
+            ProtonBridgeConfig(host="127.0.0.1", port=1143, username="user@example.com", password="secret")
+        )
+        client.imap_connection = fake_imap
+
+        self.assertTrue(client.apply_action("42", "delete"))
+        fake_imap.uid.assert_called_once_with("MOVE", "999", "Trash")
+        fake_imap.copy.assert_not_called()
+        fake_imap.store.assert_not_called()
+        fake_imap.expunge.assert_not_called()
+
+    def test_apply_action_extracts_sequence_from_scoped_message_id(self):
+        fake_imap = Mock()
+        fake_imap.create.return_value = ("OK", [])
+        fake_imap.fetch.return_value = ("OK", [(b"42 (UID 1234)", b"")])
+        fake_imap.uid.return_value = ("NO", [b"move unsupported"])
+        fake_imap.copy.return_value = ("OK", [])
+        fake_imap.store.return_value = ("OK", [])
+        fake_imap.expunge.return_value = ("NO", [b"operation not allowed"])
+
+        client = ProtonBridgeClient(
+            ProtonBridgeConfig(host="127.0.0.1", port=1143, username="user@example.com", password="secret")
+        )
+        client.imap_connection = fake_imap
+
+        self.assertTrue(client.apply_action("All Mail::42", "delete", message_uid=""))
+        fake_imap.fetch.assert_called_once_with("42", "(UID)")
+        fake_imap.copy.assert_called_once_with("42", "Trash")
+        fake_imap.store.assert_called_once_with("42", "+FLAGS.SILENT", "\\Deleted")
 
     def test_purge_trash_marks_all_messages_deleted_and_expunge(self):
         fake_imap = Mock()

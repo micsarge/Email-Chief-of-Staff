@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.config import load_proton_bridge_config
+from src.config import load_proton_bridge_config, load_scan_mailboxes
 from src.mailbox import MailboxReader
 from src.proton_bridge import ProtonBridgeClient
 from src.audit_log import append_audit_event, read_recent_audit_events
@@ -137,12 +137,12 @@ HTML = """
       }
 
       async function approve(id) {
-        await fetch('/api/review/' + id + '/approve', { method: 'POST' });
+        await fetch('/api/review/' + encodeURIComponent(id) + '/approve', { method: 'POST' });
         loadItems();
       }
 
       async function reject(id) {
-        await fetch('/api/review/' + id + '/reject', { method: 'POST' });
+        await fetch('/api/review/' + encodeURIComponent(id) + '/reject', { method: 'POST' });
         loadItems();
       }
 
@@ -198,15 +198,35 @@ def index():
     return render_template_string(HTML)
 
 
+def _collect_trashed_message_ids(reader: MailboxReader, trash_mailbox: str) -> set[str]:
+    trashed_ids: set[str] = set()
+    for message in reader.fetch_messages_for_mailbox(mailbox=trash_mailbox):
+        if message.internet_message_id:
+            trashed_ids.add(message.internet_message_id.strip().lower())
+    return trashed_ids
+
+
 def build_review_queue():
     cfg = load_proton_bridge_config()
     client = ProtonBridgeClient(cfg)
     reader = MailboxReader(client)
     engine = RuleEngine(load_rules_from_yaml())
 
-    messages = reader.fetch_all_messages()
+    scan_mailboxes = load_scan_mailboxes()
+    messages = reader.fetch_all_messages(mailboxes=scan_mailboxes)
+    trashed_message_ids = _collect_trashed_message_ids(reader, cfg.trash_mailbox)
     queue = ReviewQueue(state_path=str(STATE_PATH))
+    seen_keys = set()
     for message in messages:
+        normalized_message_id = message.internet_message_id.strip().lower() if message.internet_message_id else ""
+        if normalized_message_id and normalized_message_id in trashed_message_ids:
+            continue
+
+        dedupe_key = message.internet_message_id or f"{message.mailbox}:{message.uid or message.id}"
+        if dedupe_key in seen_keys:
+            continue
+        seen_keys.add(dedupe_key)
+
         existing = [item for item in queue.items if item.message.id == message.id]
         if existing:
             continue
@@ -251,12 +271,18 @@ def approve_item(message_id: str):
         if item and item.result.action:
             cfg = load_proton_bridge_config()
             client = ProtonBridgeClient(cfg)
-            applied = client.apply_action(message_id, item.result.action.action)
+            applied = client.apply_action(
+              message_id,
+              item.result.action.action,
+              mailbox=item.message.mailbox,
+              message_uid=item.message.uid,
+            )
             append_audit_event(
                 AUDIT_LOG_PATH,
                 "approve_action",
                 {
                     "message_id": message_id,
+                "mailbox": item.message.mailbox,
                     "action": item.result.action.action,
                     "applied": applied,
                     "summary": f"Approved {item.result.action.action} for message {message_id} (applied={applied}).",
@@ -281,7 +307,12 @@ def cleanup_all_items():
         action = item.result.action.action
         if action not in counts:
             counts[action] = 0
-        if client.apply_action(item.message.id, action):
+        if client.apply_action(
+          item.message.id,
+          action,
+          mailbox=item.message.mailbox,
+          message_uid=item.message.uid,
+        ):
             item.approved = True
             applied += 1
             counts[action] += 1

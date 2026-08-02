@@ -2,7 +2,8 @@ import unittest
 from datetime import date
 from unittest.mock import Mock, patch
 
-from app.main import app
+from app.main import _collect_trashed_message_ids, app
+from src.mailbox import MailMessage
 
 
 class SundayCleanupApiTests(unittest.TestCase):
@@ -58,6 +59,42 @@ class ReconcileApiTests(unittest.TestCase):
         payload = response.get_json()
         self.assertEqual(payload["auditSummary"]["cleanupRuns"], 1)
         self.assertEqual(payload["folderCounts"][0]["folder"], "INBOX")
+
+
+class TrashDedupingTests(unittest.TestCase):
+    def test_collect_trashed_message_ids_normalizes_values(self):
+        reader = Mock()
+        reader.fetch_messages_for_mailbox.return_value = [
+            MailMessage(
+                id="1",
+                subject="one",
+                sender="a@example.com",
+                date="",
+                preview="",
+                internet_message_id="<ABC@x>",
+            ),
+            MailMessage(
+                id="2",
+                subject="two",
+                sender="b@example.com",
+                date="",
+                preview="",
+                internet_message_id=" <abc@x> ",
+            ),
+            MailMessage(
+                id="3",
+                subject="three",
+                sender="c@example.com",
+                date="",
+                preview="",
+                internet_message_id="",
+            ),
+        ]
+
+        result = _collect_trashed_message_ids(reader, "Trash")
+
+        self.assertEqual(result, {"<abc@x>"})
+        reader.fetch_messages_for_mailbox.assert_called_once_with(mailbox="Trash")
 
 
 if __name__ == "__main__":

@@ -38,6 +38,13 @@ This repository now contains a working prototype for a human-in-the-loop inbox t
 
 Security and privacy are first-class design concerns. The current prototype requires explicit action for cleanup operations, moves deleted items to Trash first, and only permanently empties Trash through the Sunday-only cleanup flow. Review decisions are persisted locally so the dashboard can reflect prior choices during subsequent runs.
 
+Current Proton-specific behavior handled by the app:
+
+- Scan scope supports multi-folder review using `PROTON_BRIDGE_SCAN_MAILBOXES` (default `INBOX,All Mail`).
+- Delete actions are mailbox-aware and work correctly for folders like `All Mail`.
+- Messages already in Trash are suppressed from repeated cleanup recommendations even if they still appear in All Mail.
+- YAML `providers` matching is sender-only to reduce accidental broad deletions.
+
 ## Weekly Scheduler (Windows)
 
 Use the script below to run automatic Trash purge every Sunday:

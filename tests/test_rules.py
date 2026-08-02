@@ -84,6 +84,22 @@ class RuleEngineTests(unittest.TestCase):
         self.assertIsNotNone(result.action)
         self.assertEqual(result.action.action, "delete")
 
+    def test_provider_rule_does_not_match_preview_only_provider_term(self):
+        engine = RuleEngine(build_default_rules())
+        two_days_ago = (date.today() - timedelta(days=2)).strftime("%a, %d %b %Y %H:%M:%S %z")
+        message = MailMessage(
+            id="6",
+            subject="Neighborhood update",
+            sender="friend@example.com",
+            date=two_days_ago,
+            preview="Shared from Nextdoor",
+        )
+
+        result = engine.evaluate(message)
+
+        # Provider rules should rely on sender identity, not preview text mentions.
+        self.assertTrue(result.action is None or result.action.action != "delete")
+
 
 if __name__ == "__main__":
     unittest.main()

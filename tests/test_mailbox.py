@@ -8,6 +8,7 @@ from src.proton_bridge import ProtonBridgeClient, ProtonBridgeConfig
 class MailboxReaderTests(unittest.TestCase):
     def test_fetch_messages_since_parses_the_requested_day(self):
         fake_imap = Mock()
+        fake_imap.select.return_value = ("OK", [])
         fake_imap.search.return_value = ("OK", [b"1"])
         fake_imap.fetch.return_value = ("OK", [(b"1", b"Subject: Recent\r\nFrom: tester@example.com\r\nDate: Tue, 1 Jan 2024 12:00:00 +0000\r\n\r\nHello")])
 
@@ -23,6 +24,7 @@ class MailboxReaderTests(unittest.TestCase):
 
     def test_fetch_recent_messages_parses_headers_and_preview(self):
         fake_imap = Mock()
+        fake_imap.select.return_value = ("OK", [])
         fake_imap.search.return_value = ("OK", [b"1 2"])
         fake_imap.fetch.side_effect = [
             ("OK", [(b"1", b"Subject: Test subject\r\nFrom: tester@example.com\r\nDate: Tue, 1 Jan 2024 12:00:00 +0000\r\n\r\n")]),
@@ -45,6 +47,7 @@ class MailboxReaderTests(unittest.TestCase):
 
     def test_fetch_all_messages_returns_every_matching_message(self):
         fake_imap = Mock()
+        fake_imap.select.return_value = ("OK", [])
         fake_imap.search.return_value = ("OK", [b"1 2 3"])
         fake_imap.fetch.side_effect = [
             ("OK", [(b"1", b"Subject: One\r\nFrom: a@example.com\r\nDate: Tue, 1 Jan 2024 12:00:00 +0000\r\n\r\n")]),

@@ -1,5 +1,6 @@
 import os
 import imaplib
+import re
 import smtplib
 from dataclasses import dataclass
 
@@ -50,13 +51,23 @@ class ProtonBridgeClient:
             self.connect_imap()
         return self.imap_connection
 
+    def _select_mailbox(self, mailbox: str):
+        imap = self._ensure_imap()
+        try:
+            status, data = imap.select(mailbox)
+            if status == "OK":
+                return status, data
+        except Exception:
+            pass
+        return imap.select(f'"{mailbox}"')
+
     def connect_imap(self):
         try:
             connection = imaplib.IMAP4(self.config.host, self.config.port)
             connection.starttls()
             connection.login(self.config.username, self.config.password)
-            connection.select(self.config.mailbox)
             self.imap_connection = connection
+            self._select_mailbox(self.config.mailbox)
             return connection
         except Exception as exc:
             raise ProtonBridgeConnectionError(f"Failed to connect to IMAP service: {exc}") from exc
@@ -76,24 +87,71 @@ class ProtonBridgeClient:
         self.connect_smtp()
         return True
 
-    def apply_action(self, message_id: str, action: str) -> bool:
+    def _sequence_id(self, message_id: str) -> str:
+        if "::" in message_id:
+            token = message_id.split("::", 1)[1].strip()
+            if token.isdigit():
+                return token
+        return message_id
+
+    def _sequence_to_uid(self, message_id: str) -> str | None:
         imap = self._ensure_imap()
-        try:
-            if action == "archive":
-                folder_name = "Archive"
-                imap.create(folder_name)
-                imap.copy(message_id, folder_name)
-                imap.store(message_id, "+FLAGS.SILENT", "\\Deleted")
-                imap.expunge()
+        sequence_id = self._sequence_id(message_id)
+        fetch_status, fetch_data = imap.fetch(sequence_id, "(UID)")
+        if fetch_status != "OK" or not fetch_data:
+            return None
+
+        for entry in fetch_data:
+            if not isinstance(entry, tuple) or not entry:
+                continue
+            marker = entry[0]
+            if isinstance(marker, bytes):
+                marker_text = marker.decode("utf-8", errors="replace")
+            else:
+                marker_text = str(marker)
+            match = re.search(r"UID\s+(\d+)", marker_text)
+            if match:
+                return match.group(1)
+        return None
+
+    def _move_message(self, message_id: str, folder_name: str, message_uid: str = "") -> bool:
+        imap = self._ensure_imap()
+        sequence_id = self._sequence_id(message_id)
+
+        create_status, _ = imap.create(folder_name)
+        if create_status not in {"OK", "NO"}:
+            return False
+
+        uid_value = message_uid or self._sequence_to_uid(message_id)
+        if uid_value:
+            move_status, _ = imap.uid("MOVE", uid_value, folder_name)
+            if move_status == "OK":
                 return True
 
+        copy_status, _ = imap.copy(sequence_id, folder_name)
+        if copy_status != "OK":
+            return False
+
+        store_status, _ = imap.store(sequence_id, "+FLAGS.SILENT", "\\Deleted")
+        if store_status != "OK":
+            return False
+
+        expunge_status, _ = imap.expunge()
+        return expunge_status in {"OK", "NO"}
+
+    def apply_action(self, message_id: str, action: str, mailbox: str | None = None, message_uid: str = "") -> bool:
+        try:
+            imap = self._ensure_imap()
+            if mailbox:
+                select_status, _ = self._select_mailbox(mailbox)
+                if select_status != "OK":
+                    return False
+
+            if action == "archive":
+                return self._move_message(message_id, "Archive", message_uid=message_uid)
+
             if action == "delete":
-                folder_name = self.config.trash_mailbox
-                imap.create(folder_name)
-                imap.copy(message_id, folder_name)
-                imap.store(message_id, "+FLAGS.SILENT", "\\Deleted")
-                imap.expunge()
-                return True
+                return self._move_message(message_id, self.config.trash_mailbox, message_uid=message_uid)
         except Exception:
             return False
 
@@ -105,7 +163,7 @@ class ProtonBridgeClient:
         trash_mailbox = self.config.trash_mailbox
 
         try:
-            status, _ = imap.select(trash_mailbox)
+            status, _ = self._select_mailbox(trash_mailbox)
             if status != "OK":
                 return 0
 
@@ -125,6 +183,6 @@ class ProtonBridgeClient:
             return 0
         finally:
             try:
-                imap.select(original_mailbox)
+                self._select_mailbox(original_mailbox)
             except Exception:
                 pass

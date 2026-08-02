@@ -37,6 +37,9 @@ class ReviewQueue:
                     "sender": item.message.sender,
                     "date": item.message.date,
                     "preview": item.message.preview,
+                    "mailbox": item.message.mailbox,
+                    "uid": item.message.uid,
+                    "internet_message_id": item.message.internet_message_id,
                     "action": item.result.action.action if item.result.action else None,
                     "reason": item.result.action.reason if item.result.action else None,
                     "approved": item.approved,
@@ -82,6 +85,9 @@ class ReviewQueue:
                     sender=entry.get("sender", ""),
                     date=entry.get("date", ""),
                     preview=entry.get("preview", ""),
+                    mailbox=entry.get("mailbox", "INBOX"),
+                    uid=entry.get("uid", ""),
+                    internet_message_id=entry.get("internet_message_id", ""),
                 )
                 action = None
                 if entry.get("action"):

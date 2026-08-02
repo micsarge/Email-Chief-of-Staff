@@ -57,6 +57,8 @@ def load_rules_from_yaml(path: Optional[Path | str] = None) -> List[Rule]:
 
     rules = []
     for entry in payload.get("rules", []):
+        if entry.get("enabled", True) is False:
+            continue
         action = entry.get("action", "none")
         rules.append(
             Rule(
@@ -70,6 +72,7 @@ def load_rules_from_yaml(path: Optional[Path | str] = None) -> List[Rule]:
 
 def matches_rule(message: MailMessage, entry: dict) -> bool:
     text = f"{message.subject} {message.sender} {message.preview}".lower()
+    sender_text = (message.sender or "").lower()
     keywords = entry.get("match", {}).get("keywords", [])
     providers = entry.get("match", {}).get("providers", [])
 
@@ -81,7 +84,7 @@ def matches_rule(message: MailMessage, entry: dict) -> bool:
 
     provider_match = False
     if providers:
-        provider_match = any(provider.lower() in text for provider in providers)
+        provider_match = any(provider.lower() in sender_text for provider in providers)
     else:
         provider_match = True
 
@@ -134,8 +137,8 @@ def build_default_rules() -> List[Rule]:
         parsed_date = parse_message_date(message.date)
         if parsed_date is None:
             return False
-        combined_text = f"{message.subject} {message.sender} {message.preview}".lower()
-        if not any(provider in combined_text for provider in ["nextdoor", "homedepot", "indeed", "bose"]):
+        sender_text = (message.sender or "").lower()
+        if not any(provider in sender_text for provider in ["nextdoor", "homedepot", "indeed", "bose"]):
             return False
         return parsed_date <= date.today() - timedelta(days=1)
 

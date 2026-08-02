@@ -16,14 +16,20 @@ All notable changes to this project will be documented in this file.
 - Weekly Windows scheduled task support using `scripts/cleanup_sunday.py`
 - Reconciliation API (`/api/reconcile`) and script (`scripts/reconcile_mailbox.py`) for mailbox-vs-audit snapshots
 - In-app audit log panel backed by JSONL audit events
+- Mailbox-aware message identity (`mailbox`, `uid`, `internet_message_id`) to support safe multi-folder cleanup
+- Configurable scan mailbox list via `PROTON_BRIDGE_SCAN_MAILBOXES` (default: `INBOX,All Mail`)
 
 ### Changed
 - Delete actions now move messages to Trash before expunging from INBOX
 - Proton Bridge config now supports `PROTON_BRIDGE_TRASH_MAILBOX`
+- Provider matching for YAML `providers` now checks sender identity only (no subject/preview provider matches)
 
 ### Fixed
 - Cleanup flows now skip stale IMAP message IDs instead of failing the full request
 - Improved status visibility and summary feedback during cleanup operations in the dashboard
+- Proton All Mail cleanup now handles mailbox names with spaces and UID/sequence differences correctly
+- Cleanup now avoids retrying messages already present in Trash when those same messages also appear in All Mail
+- Sunday cleanup verified end-to-end with permanent Trash purge (`TRASH_BEFORE 140` -> `TRASH_AFTER 0`)
 
 ## [0.1.0] - 2026-07-31
 
