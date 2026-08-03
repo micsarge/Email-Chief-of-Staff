@@ -139,6 +139,15 @@ class ProtonBridgeClient:
         expunge_status, _ = imap.expunge()
         return expunge_status in {"OK", "NO"}
 
+    def _target_folder_for_action(self, action: str, target_folder: str | None = None) -> str | None:
+        if action == "archive":
+            return "Archive"
+        if action == "move":
+            return target_folder
+        if action == "delete":
+            return self.config.trash_mailbox
+        return None
+
     def apply_action(
         self,
         message_id: str,
@@ -148,26 +157,18 @@ class ProtonBridgeClient:
         target_folder: str | None = None,
     ) -> bool:
         try:
-            imap = self._ensure_imap()
+            self._ensure_imap()
             if mailbox:
                 select_status, _ = self._select_mailbox(mailbox)
                 if select_status != "OK":
                     return False
 
-            if action == "archive":
-                return self._move_message(message_id, "Archive", message_uid=message_uid)
-
-            if action == "move":
-                if not target_folder:
-                    return False
-                return self._move_message(message_id, target_folder, message_uid=message_uid)
-
-            if action == "delete":
-                return self._move_message(message_id, self.config.trash_mailbox, message_uid=message_uid)
+            folder_name = self._target_folder_for_action(action, target_folder=target_folder)
+            if not folder_name:
+                return False
+            return self._move_message(message_id, folder_name, message_uid=message_uid)
         except Exception:
             return False
-
-        return False
 
     def purge_trash(self) -> int:
         imap = self._ensure_imap()

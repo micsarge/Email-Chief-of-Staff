@@ -27,6 +27,7 @@ def _count_folder(client: ProtonBridgeClient, folder_name: str) -> dict:
     if selected[0] != "OK":
         return {"folder": folder_name, "available": False, "messageCount": 0}
 
+    imap_connection = client._ensure_imap()
     status, ids = imap_connection.search(None, "UNDELETED")
     if status != "OK":
         return {"folder": folder_name, "available": True, "messageCount": 0}
