@@ -21,6 +21,7 @@ from src.rules import RuleEngine, load_rules_from_yaml
 app = Flask(__name__)
 STATE_PATH = Path(__file__).resolve().parent / "review_state.json"
 AUDIT_LOG_PATH = Path(__file__).resolve().parent / "audit_log.jsonl"
+PROTON_FOLDER = "Folders/Proton"
 
 HTML = """
 <!doctype html>
@@ -210,6 +211,14 @@ def _collect_trashed_message_ids(reader: MailboxReader, trash_mailbox: str) -> s
     return trashed_ids
 
 
+def _collect_folder_message_ids(reader: MailboxReader, folder_name: str) -> set[str]:
+    folder_ids: set[str] = set()
+    for message in reader.fetch_messages_for_mailbox(mailbox=folder_name):
+        if message.internet_message_id:
+            folder_ids.add(message.internet_message_id.strip().lower())
+    return folder_ids
+
+
 def build_review_queue():
     cfg = load_proton_bridge_config()
     client = ProtonBridgeClient(cfg)
@@ -219,11 +228,16 @@ def build_review_queue():
     scan_mailboxes = load_scan_mailboxes()
     messages = reader.fetch_all_messages(mailboxes=scan_mailboxes)
     trashed_message_ids = _collect_trashed_message_ids(reader, cfg.trash_mailbox)
+    proton_message_ids = _collect_folder_message_ids(reader, PROTON_FOLDER)
     queue = ReviewQueue(state_path=str(STATE_PATH))
+    state_by_id = queue.load_state()
     seen_keys = set()
     for message in messages:
         normalized_message_id = message.internet_message_id.strip().lower() if message.internet_message_id else ""
         if normalized_message_id and normalized_message_id in trashed_message_ids:
+            continue
+
+        if normalized_message_id and normalized_message_id in proton_message_ids and message.mailbox != PROTON_FOLDER:
             continue
 
         dedupe_key = message.internet_message_id or f"{message.mailbox}:{message.uid or message.id}"
@@ -231,39 +245,42 @@ def build_review_queue():
             continue
         seen_keys.add(dedupe_key)
 
-        existing = [item for item in queue.items if item.message.id == message.id]
-        if existing:
-            continue
-        queue.add(ReviewItem(message=message, result=engine.evaluate(message)))
+        queue.add(
+          ReviewItem(
+            message=message,
+            result=engine.evaluate(message),
+            approved=state_by_id.get(message.id),
+          )
+        )
     queue.save_state()
     return queue, messages
 
 
 @app.get("/api/review")
 def review_api():
-  queue, messages = build_review_queue()
-  recommendations = [item for item in queue.to_summary() if item["action"] != "none"]
+    queue, messages = build_review_queue()
+    recommendations = [item for item in queue.to_summary() if item["action"] != "none"]
 
-  categories = {"delete": 0, "archive": 0, "move": 0, "respond": 0}
-  for item in recommendations:
-    if item["action"] == "delete":
-      categories["delete"] += 1
-    elif item["action"] == "archive":
-      categories["archive"] += 1
-    elif item["action"] == "move":
-      categories["move"] += 1
-    else:
-      categories["respond"] += 1
+    categories = {"delete": 0, "archive": 0, "move": 0, "respond": 0}
+    for item in recommendations:
+        if item["action"] == "delete":
+            categories["delete"] += 1
+        elif item["action"] == "archive":
+            categories["archive"] += 1
+        elif item["action"] == "move":
+            categories["move"] += 1
+        else:
+            categories["respond"] += 1
 
-  return jsonify(
-    {
-      "totalMessages": len(messages),
-      "messagesSinceYesterday": len(messages),
-      "categories": categories,
-      "recommendations": recommendations,
-      "audit": read_recent_audit_events(AUDIT_LOG_PATH, limit=15),
-    }
-  )
+    return jsonify(
+        {
+            "totalMessages": len(messages),
+            "messagesSinceYesterday": len(messages),
+            "categories": categories,
+            "recommendations": recommendations,
+            "audit": read_recent_audit_events(AUDIT_LOG_PATH, limit=15),
+        }
+    )
 
 
 @app.post("/api/review/<message_id>/approve")

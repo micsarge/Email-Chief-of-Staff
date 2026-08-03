@@ -4,6 +4,7 @@ from unittest.mock import Mock, patch
 
 from app.main import _collect_trashed_message_ids, app
 from src.mailbox import MailMessage
+from src.rules import RuleAction, RuleResult
 
 
 class SundayCleanupApiTests(unittest.TestCase):
@@ -95,6 +96,130 @@ class TrashDedupingTests(unittest.TestCase):
 
         self.assertEqual(result, {"<abc@x>"})
         reader.fetch_messages_for_mailbox.assert_called_once_with(mailbox="Trash")
+
+    @patch("app.main.ReviewQueue")
+    @patch("app.main.RuleEngine")
+    @patch("app.main.load_rules_from_yaml", return_value=[])
+    @patch("app.main.load_scan_mailboxes", return_value=["All Mail"])
+    @patch("app.main.load_proton_bridge_config")
+    @patch("app.main.MailboxReader")
+    @patch("app.main.ProtonBridgeClient")
+    def test_build_review_queue_skips_messages_already_in_proton_folder(
+        self,
+        mock_client_cls,
+        mock_reader_cls,
+        mock_load_cfg,
+        mock_load_scan_mailboxes,
+        mock_load_rules,
+        mock_rule_engine_cls,
+        mock_queue_cls,
+    ):
+        mock_load_cfg.return_value = Mock(trash_mailbox="Trash")
+
+        all_mail_message = MailMessage(
+            id="all-mail-1",
+            subject="Proton update",
+            sender='"Proton" <news@proton.me>',
+            date="",
+            preview="",
+            mailbox="All Mail",
+            internet_message_id="<abc@x>",
+        )
+        proton_folder_message = MailMessage(
+            id="proton-1",
+            subject="Proton update",
+            sender='"Proton" <news@proton.me>',
+            date="",
+            preview="",
+            mailbox="Folders/Proton",
+            internet_message_id="<abc@x>",
+        )
+
+        mock_reader = Mock()
+        mock_reader.fetch_all_messages.return_value = [all_mail_message]
+
+        def fetch_messages_for_mailbox(mailbox):
+            if mailbox == "Trash":
+                return []
+            if mailbox == "Folders/Proton":
+                return [proton_folder_message]
+            return []
+
+        mock_reader.fetch_messages_for_mailbox.side_effect = fetch_messages_for_mailbox
+        mock_reader_cls.return_value = mock_reader
+
+        mock_rule_engine = Mock()
+        mock_rule_engine.evaluate.return_value = RuleResult(
+            message=all_mail_message,
+            action=RuleAction(action="move", reason="Test", target_folder="Folders/Proton"),
+        )
+        mock_rule_engine_cls.return_value = mock_rule_engine
+
+        mock_queue = Mock()
+        mock_queue.items = []
+        mock_queue_cls.return_value = mock_queue
+
+        from app.main import build_review_queue
+
+        queue, messages = build_review_queue()
+
+        self.assertEqual(messages, [all_mail_message])
+        mock_queue.add.assert_not_called()
+        self.assertIs(queue, mock_queue)
+
+    @patch("app.main.ReviewQueue")
+    @patch("app.main.RuleEngine")
+    @patch("app.main.load_rules_from_yaml", return_value=[])
+    @patch("app.main.load_scan_mailboxes", return_value=["All Mail"])
+    @patch("app.main.load_proton_bridge_config")
+    @patch("app.main.MailboxReader")
+    @patch("app.main.ProtonBridgeClient")
+    def test_build_review_queue_readds_messages_that_already_have_saved_state(
+        self,
+        mock_client_cls,
+        mock_reader_cls,
+        mock_load_cfg,
+        mock_load_scan_mailboxes,
+        mock_load_rules,
+        mock_rule_engine_cls,
+        mock_queue_cls,
+    ):
+        mock_load_cfg.return_value = Mock(trash_mailbox="Trash")
+
+        all_mail_message = MailMessage(
+            id="all-mail-2",
+            subject="April Proton mail",
+            sender='"Proton" <no-reply@proton.me>',
+            date="",
+            preview="",
+            mailbox="All Mail",
+            internet_message_id="<saved-state@x>",
+        )
+
+        mock_reader = Mock()
+        mock_reader.fetch_all_messages.return_value = [all_mail_message]
+        mock_reader.fetch_messages_for_mailbox.return_value = []
+        mock_reader_cls.return_value = mock_reader
+
+        mock_rule_engine = Mock()
+        mock_rule_engine.evaluate.return_value = RuleResult(
+            message=all_mail_message,
+            action=RuleAction(action="move", reason="Test", target_folder="Folders/Proton"),
+        )
+        mock_rule_engine_cls.return_value = mock_rule_engine
+
+        mock_queue = Mock()
+        mock_queue.items = []
+        mock_queue.load_state.return_value = {"all-mail-2": True}
+        mock_queue_cls.return_value = mock_queue
+
+        from app.main import build_review_queue
+
+        queue, messages = build_review_queue()
+
+        self.assertEqual(messages, [all_mail_message])
+        mock_queue.add.assert_called_once()
+        self.assertIs(queue, mock_queue)
 
 
 if __name__ == "__main__":
