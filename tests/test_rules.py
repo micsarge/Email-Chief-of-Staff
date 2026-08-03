@@ -37,6 +37,38 @@ class RuleEngineTests(unittest.TestCase):
         self.assertIsNotNone(result.action)
         self.assertEqual(result.action.action, "archive")
 
+    def test_rules_route_proton_mail_to_folder_except_for_own_addresses(self):
+        engine = RuleEngine(build_default_rules())
+        message = MailMessage(
+            id="2a",
+            subject="Proton is now SOC 2 Type II audited",
+            sender='"Proton for Business" <business-updates@proton.me>',
+            date="",
+            preview="",
+        )
+
+        result = engine.evaluate(message)
+
+        self.assertIsNotNone(result.action)
+        self.assertEqual(result.action.action, "move")
+        self.assertEqual(result.action.target_folder, "Proton")
+
+        excluded_senders = [
+            '"Michael Sargent" <micsarge@cfl.rr.com>',
+            '"Deb Lengyel" <deb.lengyel@example.com>',
+        ]
+        for index, sender in enumerate(excluded_senders, start=1):
+            excluded_message = MailMessage(
+                id=f"2a-{index}",
+                subject="Proton update",
+                sender=sender,
+                date="",
+                preview="",
+            )
+
+            excluded_result = engine.evaluate(excluded_message)
+            self.assertTrue(excluded_result.action is None or excluded_result.action.action != "move")
+
     def test_rules_delete_old_informed_delivery_messages(self):
         engine = RuleEngine(build_default_rules())
         yesterday = (date.today() - timedelta(days=1)).strftime("%a, %d %b %Y %H:%M:%S %z")

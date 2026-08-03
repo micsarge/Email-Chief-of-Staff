@@ -41,6 +41,7 @@ HTML = """
       .pill { display: inline-block; padding: 0.25rem 0.6rem; border-radius: 999px; font-size: 0.8rem; font-weight: 700; margin-bottom: 0.6rem; }
       .pill-delete { background: #ffe7e7; color: #a42b2b; }
       .pill-archive { background: #eaf4ff; color: #2457a3; }
+      .pill-move { background: #fff3e6; color: #a85b00; }
       .pill-respond { background: #eaf8ee; color: #2f7545; }
       button { margin-right: 0.5rem; border: none; cursor: pointer; padding: 0.45rem 0.8rem; border-radius: 999px; font-weight: 600; }
       .btn-approve { background: #2f7545; color: white; }
@@ -86,6 +87,7 @@ HTML = """
         const sinceYesterday = data.messagesSinceYesterday;
         const deleteCount = data.categories.delete;
         const archiveCount = data.categories.archive;
+        const moveCount = data.categories.move;
         const respondCount = data.categories.respond;
 
         const statMarkup = `
@@ -93,6 +95,7 @@ HTML = """
           <div class="stat"><strong>${sinceYesterday}</strong><div>Messages in current scan</div></div>
           <div class="stat"><strong>${deleteCount}</strong><div>Delete suggestions</div></div>
           <div class="stat"><strong>${archiveCount}</strong><div>Archive suggestions</div></div>
+          <div class="stat"><strong>${moveCount}</strong><div>Move suggestions</div></div>
           <div class="stat"><strong>${respondCount}</strong><div>Respond suggestions</div></div>
         `;
         stats.innerHTML = statMarkup;
@@ -118,8 +121,8 @@ HTML = """
         data.recommendations.forEach(item => {
           const card = document.createElement('div');
           card.className = 'card';
-          const pillClass = item.action === 'delete' ? 'pill-delete' : item.action === 'archive' ? 'pill-archive' : 'pill-respond';
-          const pillLabel = item.action === 'delete' ? 'Delete' : item.action === 'archive' ? 'Archive' : 'Respond';
+          const pillClass = item.action === 'delete' ? 'pill-delete' : item.action === 'archive' ? 'pill-archive' : item.action === 'move' ? 'pill-move' : 'pill-respond';
+          const pillLabel = item.action === 'delete' ? 'Delete' : item.action === 'archive' ? 'Archive' : item.action === 'move' ? 'Move' : 'Respond';
           card.innerHTML = `
             <div class="pill ${pillClass}">${pillLabel}</div>
             <strong>${item.subject}</strong><br/>
@@ -156,6 +159,7 @@ HTML = """
           const summary = [];
           if (data.counts.delete) summary.push(data.counts.delete + ' deleted');
           if (data.counts.archive) summary.push(data.counts.archive + ' archived');
+          if (data.counts.move) summary.push(data.counts.move + ' moved');
           if (data.counts.respond) summary.push(data.counts.respond + ' responded');
           statusEl.innerHTML = '<div>' + data.applied + ' matching messages were cleaned.</div><div class="summary-list">' + summary.join(', ') + '</div>';
           statusEl.className = 'status';
@@ -237,28 +241,29 @@ def build_review_queue():
 
 @app.get("/api/review")
 def review_api():
-    queue, messages = build_review_queue()
+  queue, messages = build_review_queue()
+  recommendations = [item for item in queue.to_summary() if item["action"] != "none"]
 
-    recommendations = [item for item in queue.to_summary() if item["action"] != "none"]
+  categories = {"delete": 0, "archive": 0, "move": 0, "respond": 0}
+  for item in recommendations:
+    if item["action"] == "delete":
+      categories["delete"] += 1
+    elif item["action"] == "archive":
+      categories["archive"] += 1
+    elif item["action"] == "move":
+      categories["move"] += 1
+    else:
+      categories["respond"] += 1
 
-    categories = {"delete": 0, "archive": 0, "respond": 0}
-    for item in recommendations:
-        if item["action"] == "delete":
-            categories["delete"] += 1
-        elif item["action"] == "archive":
-            categories["archive"] += 1
-        else:
-            categories["respond"] += 1
-
-    return jsonify(
-        {
-            "totalMessages": len(messages),
-            "messagesSinceYesterday": len(messages),
-            "categories": categories,
-            "recommendations": recommendations,
-        "audit": read_recent_audit_events(AUDIT_LOG_PATH, limit=15),
-        }
-    )
+  return jsonify(
+    {
+      "totalMessages": len(messages),
+      "messagesSinceYesterday": len(messages),
+      "categories": categories,
+      "recommendations": recommendations,
+      "audit": read_recent_audit_events(AUDIT_LOG_PATH, limit=15),
+    }
+  )
 
 
 @app.post("/api/review/<message_id>/approve")
@@ -272,17 +277,18 @@ def approve_item(message_id: str):
             cfg = load_proton_bridge_config()
             client = ProtonBridgeClient(cfg)
             applied = client.apply_action(
-              message_id,
-              item.result.action.action,
-              mailbox=item.message.mailbox,
-              message_uid=item.message.uid,
+            message_id,
+            item.result.action.action,
+            mailbox=item.message.mailbox,
+            message_uid=item.message.uid,
+            target_folder=item.result.action.target_folder,
             )
             append_audit_event(
                 AUDIT_LOG_PATH,
                 "approve_action",
                 {
                     "message_id": message_id,
-                "mailbox": item.message.mailbox,
+              "mailbox": item.message.mailbox,
                     "action": item.result.action.action,
                     "applied": applied,
                     "summary": f"Approved {item.result.action.action} for message {message_id} (applied={applied}).",
@@ -297,7 +303,7 @@ def cleanup_all_items():
     cfg = load_proton_bridge_config()
     client = ProtonBridgeClient(cfg)
 
-    counts = {"delete": 0, "archive": 0, "respond": 0}
+    counts = {"delete": 0, "archive": 0, "move": 0, "respond": 0}
     applied = 0
     for item in queue.items:
         if item.approved is not None:
@@ -308,10 +314,11 @@ def cleanup_all_items():
         if action not in counts:
             counts[action] = 0
         if client.apply_action(
-          item.message.id,
-          action,
-          mailbox=item.message.mailbox,
-          message_uid=item.message.uid,
+            item.message.id,
+            action,
+            mailbox=item.message.mailbox,
+            message_uid=item.message.uid,
+            target_folder=item.result.action.target_folder,
         ):
             item.approved = True
             applied += 1
@@ -327,7 +334,7 @@ def cleanup_all_items():
             "applied": applied,
             "counts": counts,
             "total_messages_seen": len(messages),
-            "summary": f"Cleanup applied to {applied} messages (delete={counts.get('delete', 0)}, archive={counts.get('archive', 0)}, respond={counts.get('respond', 0)}).",
+          "summary": f"Cleanup applied to {applied} messages (delete={counts.get('delete', 0)}, archive={counts.get('archive', 0)}, move={counts.get('move', 0)}, respond={counts.get('respond', 0)}).",
         },
     )
     return jsonify({"ok": True, "applied": applied, "counts": counts, "totalMessages": len(messages)})

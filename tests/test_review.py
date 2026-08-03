@@ -44,6 +44,34 @@ class ReviewQueueTests(unittest.TestCase):
             if os.path.exists(state_path):
                 os.remove(state_path)
 
+    def test_review_queue_persists_target_folder(self):
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as handle:
+            state_path = handle.name
+
+        try:
+            message = MailMessage(
+                id="3",
+                subject="Proton update",
+                sender='"Proton" <news@proton.me>',
+                date="",
+                preview="",
+            )
+            item = ReviewItem(
+                message=message,
+                result=RuleResult(message=message, action=RuleAction(action="move", reason="Test", target_folder="Proton")),
+            )
+            queue = ReviewQueue(items=[item], state_path=state_path)
+            queue.save_state()
+
+            loaded = ReviewQueue(state_path=state_path)
+            loaded.load_state()
+
+            self.assertEqual(loaded.items[0].result.action.action, "move")
+            self.assertEqual(loaded.items[0].result.action.target_folder, "Proton")
+        finally:
+            if os.path.exists(state_path):
+                os.remove(state_path)
+
     def test_queue_can_load_state_without_rehydrating_items(self):
         with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as handle:
             state_path = handle.name

@@ -104,6 +104,25 @@ class ProtonBridgeClientTests(unittest.TestCase):
         fake_imap.store.assert_called_once_with("42", "+FLAGS.SILENT", "\\Deleted")
         fake_imap.expunge.assert_called_once()
 
+    def test_apply_action_moves_message_to_custom_folder(self):
+        fake_imap = Mock()
+        fake_imap.create.return_value = ("OK", [])
+        fake_imap.fetch.return_value = ("OK", [(b"42 (UID 321)", b"")])
+        fake_imap.uid.return_value = ("OK", [b"moved"])
+
+        client = ProtonBridgeClient(
+            ProtonBridgeConfig(host="127.0.0.1", port=1143, username="user@example.com", password="secret")
+        )
+        client.imap_connection = fake_imap
+
+        self.assertTrue(client.apply_action("42", "move", target_folder="Proton"))
+
+        fake_imap.create.assert_called_once_with("Proton")
+        fake_imap.uid.assert_called_once_with("MOVE", "321", "Proton")
+        fake_imap.copy.assert_not_called()
+        fake_imap.store.assert_not_called()
+        fake_imap.expunge.assert_not_called()
+
     def test_apply_action_delete_moves_message_to_trash_first(self):
         fake_imap = Mock()
         fake_imap.create.return_value = ("OK", [])

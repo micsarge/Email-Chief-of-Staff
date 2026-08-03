@@ -12,6 +12,7 @@ from src.mailbox import MailMessage
 class RuleAction:
     action: str
     reason: str
+    target_folder: Optional[str] = None
 
 
 @dataclass
@@ -64,7 +65,11 @@ def load_rules_from_yaml(path: Optional[Path | str] = None) -> List[Rule]:
             Rule(
                 name=entry.get("name", "unnamed-rule"),
                 predicate=lambda message, entry=entry: matches_rule(message, entry),
-                action=RuleAction(action=action, reason=entry.get("reason", "")),
+                action=RuleAction(
+                    action=action,
+                    reason=entry.get("reason", ""),
+                    target_folder=entry.get("target_folder"),
+                ),
             )
         )
     return rules
@@ -159,6 +164,14 @@ def build_default_rules() -> List[Rule]:
         text = f"{message.subject} {message.sender} {message.preview}".lower()
         return "fcc" in text and "license" in text
 
+    def is_proton_folder_candidate(message: MailMessage) -> bool:
+        sender_text = (message.sender or "").lower()
+        if "proton" not in sender_text:
+            return False
+        if "micsarge" in sender_text or "deb.lengyel" in sender_text:
+            return False
+        return True
+
     return [
         Rule(
             name="delete-old-informed-delivery",
@@ -179,5 +192,14 @@ def build_default_rules() -> List[Rule]:
             name="archive-fcc-license-notice",
             predicate=is_fcc_notice,
             action=RuleAction(action="archive", reason="Appears to be an official FCC notice that may not need to stay in the inbox."),
+        ),
+        Rule(
+            name="move-non-affiliated-proton-mail",
+            predicate=is_proton_folder_candidate,
+            action=RuleAction(
+                action="move",
+                reason="Route Proton-related mail to the Proton folder unless it is from your own accounts.",
+                target_folder="Proton",
+            ),
         ),
     ]

@@ -12,6 +12,8 @@ All notable changes to this project will be documented in this file.
 - Regression tests covering persisted review state behavior
 - Full-inbox scanning and one-click cleanup of messages that match the configured rules
 - External YAML rules configuration for recommendation and cleanup behavior
+- Folder-targeted move actions for rule-based routing
+- Proton folder routing rule for sender names containing Proton, excluding micsarge and deb.lengyel
 - Sunday-only trash purge endpoint and dashboard action ("Clean Up Sunday")
 - Weekly Windows scheduled task support using `scripts/cleanup_sunday.py`
 - Reconciliation API (`/api/reconcile`) and script (`scripts/reconcile_mailbox.py`) for mailbox-vs-audit snapshots
@@ -23,6 +25,7 @@ All notable changes to this project will be documented in this file.
 - Delete actions now move messages to Trash before expunging from INBOX
 - Proton Bridge config now supports `PROTON_BRIDGE_TRASH_MAILBOX`
 - Provider matching for YAML `providers` now checks sender identity only (no subject/preview provider matches)
+- Review, dashboard, and cleanup flows now preserve and execute folder-targeted move actions
 
 ### Fixed
 - Cleanup flows now skip stale IMAP message IDs instead of failing the full request

@@ -42,6 +42,7 @@ class ReviewQueue:
                     "internet_message_id": item.message.internet_message_id,
                     "action": item.result.action.action if item.result.action else None,
                     "reason": item.result.action.reason if item.result.action else None,
+                    "target_folder": item.result.action.target_folder if item.result.action else None,
                     "approved": item.approved,
                 }
             )
@@ -91,7 +92,11 @@ class ReviewQueue:
                 )
                 action = None
                 if entry.get("action"):
-                    action = RuleAction(action=entry.get("action"), reason=entry.get("reason") or "")
+                    action = RuleAction(
+                        action=entry.get("action"),
+                        reason=entry.get("reason") or "",
+                        target_folder=entry.get("target_folder"),
+                    )
                 result = RuleResult(message=message, action=action)
                 self.items.append(ReviewItem(message=message, result=result, approved=entry.get("approved")))
             return state_by_id
