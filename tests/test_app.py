@@ -62,6 +62,99 @@ class ReconcileApiTests(unittest.TestCase):
         self.assertEqual(payload["folderCounts"][0]["folder"], "INBOX")
 
 
+class CleanupApiTests(unittest.TestCase):
+    def setUp(self):
+        self.client = app.test_client()
+
+    @patch("app.main.append_audit_event")
+    @patch("app.main.load_proton_bridge_config")
+    @patch("app.main.ProtonBridgeClient")
+    @patch("app.main.build_review_queue")
+    def test_cleanup_endpoint_counts_successful_actions(
+        self,
+        mock_build_review_queue,
+        mock_client_cls,
+        mock_load_cfg,
+        mock_append_audit,
+    ):
+        delete_message = MailMessage(
+            id="m1",
+            subject="Delete me",
+            sender="sender@example.com",
+            date="",
+            preview="",
+            mailbox="INBOX",
+            uid="1",
+        )
+        move_message = MailMessage(
+            id="m2",
+            subject="Move me",
+            sender="sender@example.com",
+            date="",
+            preview="",
+            mailbox="All Mail",
+            uid="2",
+        )
+        archive_message = MailMessage(
+            id="m3",
+            subject="Archive me",
+            sender="sender@example.com",
+            date="",
+            preview="",
+            mailbox="INBOX",
+            uid="3",
+        )
+
+        delete_item = Mock(
+            approved=None,
+            message=delete_message,
+            result=RuleResult(message=delete_message, action=RuleAction(action="delete", reason="r1")),
+        )
+        move_item = Mock(
+            approved=None,
+            message=move_message,
+            result=RuleResult(
+                message=move_message,
+                action=RuleAction(action="move", reason="r2", target_folder="Folders/Proton"),
+            ),
+        )
+        archive_item = Mock(
+            approved=None,
+            message=archive_message,
+            result=RuleResult(message=archive_message, action=RuleAction(action="archive", reason="r3")),
+        )
+
+        queue = Mock()
+        queue.items = [delete_item, move_item, archive_item]
+        mock_build_review_queue.return_value = (queue, [delete_message, move_message, archive_message])
+
+        mock_load_cfg.return_value = Mock()
+        mock_client = Mock()
+        mock_client.apply_action.side_effect = [True, False, True]
+        mock_client_cls.return_value = mock_client
+
+        response = self.client.post("/api/review/cleanup")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["applied"], 2)
+        self.assertEqual(payload["counts"]["delete"], 1)
+        self.assertEqual(payload["counts"]["archive"], 1)
+        self.assertEqual(payload["counts"]["move"], 0)
+
+        self.assertTrue(delete_item.approved)
+        self.assertFalse(move_item.approved)
+        self.assertTrue(archive_item.approved)
+
+        queue.save_state.assert_called_once()
+        mock_append_audit.assert_called_once()
+
+        # Ensure target_folder is propagated for move actions.
+        move_call = mock_client.apply_action.call_args_list[1]
+        self.assertEqual(move_call.kwargs.get("target_folder"), "Folders/Proton")
+
+
 class TrashDedupingTests(unittest.TestCase):
     def test_collect_trashed_message_ids_normalizes_values(self):
         reader = Mock()

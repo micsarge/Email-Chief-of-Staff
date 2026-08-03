@@ -9,6 +9,72 @@ import yaml
 from src.mailbox import MailMessage
 
 
+DEFAULT_RULES_PAYLOAD = {
+    "rules": [
+        {
+            "name": "delete-old-informed-delivery",
+            "action": "delete",
+            "reason": "Older informed delivery notifications can be cleaned up.",
+            "match": {
+                "keywords": ["informed delivery"],
+                "date": "older-than-1-day",
+            },
+        },
+        {
+            "name": "delete-old-sender-notifications",
+            "action": "delete",
+            "reason": "Older notifications from selected senders can be cleaned up.",
+            "match": {
+                "providers": [
+                    "nextdoor",
+                    "homedepot",
+                    "indeed",
+                    "bose",
+                    "Hulu",
+                    "Bindertek",
+                    "Olander Earthworks",
+                    "Pensachi Company",
+                    "Agilite",
+                    "namecheap",
+                    "Chase",
+                ],
+                "date": "older-than-1-day",
+            },
+        },
+        {
+            "name": "delete-old-usps-tracking",
+            "action": "delete",
+            "reason": "Past USPS tracking notices are no longer useful.",
+            "match": {
+                "keywords": ["usps tracking"],
+                "date": "before-today",
+            },
+        },
+        {
+            "name": "archive-fcc-license-notice",
+            "action": "archive",
+            "reason": "Appears to be an official FCC notice that may not need to stay in the inbox.",
+            "match": {
+                "keywords": ["fcc", "license"],
+            },
+        },
+        {
+            "name": "move-non-affiliated-proton-mail",
+            "action": "move",
+            "target_folder": "Folders/Proton",
+            "reason": "Route Proton-related mail to the Proton folder unless it is from your own accounts.",
+            "match": {
+                "providers": [
+                    "no-reply@proton.me",
+                    "no-reply@mail.proton.me",
+                    "no-reply@notify.proton.me",
+                ],
+            },
+        },
+    ]
+}
+
+
 @dataclass
 class RuleAction:
     action: str
@@ -57,8 +123,17 @@ def load_rules_from_yaml(path: Optional[Path | str] = None) -> List[Rule]:
     with path.open("r", encoding="utf-8") as handle:
         payload = yaml.safe_load(handle) or {}
 
+    if not isinstance(payload, dict):
+        return build_default_rules()
+
+    return build_rules_from_entries(payload.get("rules", []))
+
+
+def build_rules_from_entries(entries: list[dict]) -> List[Rule]:
     rules = []
-    for entry in payload.get("rules", []):
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
         if entry.get("enabled", True) is False:
             continue
         action = entry.get("action", "none")
@@ -105,12 +180,12 @@ def matches_rule(message: MailMessage, entry: dict) -> bool:
         return parsed_date <= date.today() - timedelta(days=1)
 
     if date_rule == "before-today":
-        subject = message.subject.lower()
-        token = subject.split("usps tracking")[-1].strip() if "usps tracking" in subject else ""
-        if not token:
+        subject = (message.subject or "").lower()
+        match = re.search(r"(\d{4}-\d{2}-\d{2})", subject)
+        if not match:
             return False
         try:
-            subject_date = datetime.strptime(token, "%Y-%m-%d")
+            subject_date = datetime.strptime(match.group(1), "%Y-%m-%d")
         except ValueError:
             return False
         return subject_date.date() < date.today()
@@ -130,87 +205,4 @@ def parse_message_date(message_date: str) -> Optional[date]:
 
 
 def build_default_rules() -> List[Rule]:
-    def is_old_informed_delivery(message: MailMessage) -> bool:
-        text = f"{message.subject} {message.sender} {message.preview}".lower()
-        if "informed delivery" not in text and "usps" not in text:
-            return False
-        parsed_date = parse_message_date(message.date)
-        if parsed_date is None:
-            return False
-        return parsed_date <= date.today() - timedelta(days=1)
-
-    def is_old_sender_notification(message: MailMessage) -> bool:
-        parsed_date = parse_message_date(message.date)
-        if parsed_date is None:
-            return False
-        sender_text = (message.sender or "").lower()
-        if not any(provider in sender_text for provider in ["nextdoor", "homedepot", "indeed", "bose"]):
-            return False
-        return parsed_date <= date.today() - timedelta(days=1)
-
-    def is_old_usps_tracking(message: MailMessage) -> bool:
-        subject = message.subject.lower()
-        if "usps tracking" not in subject:
-            return False
-        token = subject.split("usps tracking")[-1].strip()
-        if not token:
-            return False
-        try:
-            subject_date = datetime.strptime(token, "%Y-%m-%d")
-        except ValueError:
-            return False
-        return subject_date.date() < date.today()
-
-    def is_fcc_notice(message: MailMessage) -> bool:
-        text = f"{message.subject} {message.sender} {message.preview}".lower()
-        return "fcc" in text and "license" in text
-
-    def extract_sender_email(sender: str) -> str:
-        sender = (sender or "").strip().lower()
-        match = re.search(r"<([^>]+)>", sender)
-        if match:
-            return match.group(1).strip().lower()
-        return sender
-
-    def is_proton_folder_candidate(message: MailMessage) -> bool:
-        sender_email = extract_sender_email(message.sender)
-        allowed_senders = {
-            "no-reply@proton.me",
-            "no-reply@mail.proton.me",
-            "no-reply@notify.proton.me",
-        }
-        if sender_email not in allowed_senders:
-            return False
-        return True
-
-    return [
-        Rule(
-            name="delete-old-informed-delivery",
-            predicate=is_old_informed_delivery,
-            action=RuleAction(action="delete", reason="Older informed delivery notifications can be cleaned up."),
-        ),
-        Rule(
-            name="delete-old-sender-notifications",
-            predicate=is_old_sender_notification,
-            action=RuleAction(action="delete", reason="Older notifications from selected senders can be cleaned up."),
-        ),
-        Rule(
-            name="delete-old-usps-tracking",
-            predicate=is_old_usps_tracking,
-            action=RuleAction(action="delete", reason="Past USPS tracking notices are no longer useful."),
-        ),
-        Rule(
-            name="archive-fcc-license-notice",
-            predicate=is_fcc_notice,
-            action=RuleAction(action="archive", reason="Appears to be an official FCC notice that may not need to stay in the inbox."),
-        ),
-        Rule(
-            name="move-non-affiliated-proton-mail",
-            predicate=is_proton_folder_candidate,
-            action=RuleAction(
-                action="move",
-                reason="Route Proton-related mail to the Proton folder unless it is from your own accounts.",
-                target_folder="Folders/Proton",
-            ),
-        ),
-    ]
+    return build_rules_from_entries(DEFAULT_RULES_PAYLOAD.get("rules", []))

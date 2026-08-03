@@ -166,6 +166,46 @@ class ProtonBridgeClientTests(unittest.TestCase):
         self.assertFalse(client.apply_action("42", "delete"))
         fake_imap.expunge.assert_not_called()
 
+    def test_apply_action_returns_false_for_unknown_action(self):
+        fake_imap = Mock()
+
+        client = ProtonBridgeClient(
+            ProtonBridgeConfig(host="127.0.0.1", port=1143, username="user@example.com", password="secret")
+        )
+        client.imap_connection = fake_imap
+
+        self.assertFalse(client.apply_action("42", "unknown-action"))
+        fake_imap.create.assert_not_called()
+        fake_imap.copy.assert_not_called()
+        fake_imap.uid.assert_not_called()
+
+    def test_apply_action_returns_false_for_move_without_target_folder(self):
+        fake_imap = Mock()
+
+        client = ProtonBridgeClient(
+            ProtonBridgeConfig(host="127.0.0.1", port=1143, username="user@example.com", password="secret")
+        )
+        client.imap_connection = fake_imap
+
+        self.assertFalse(client.apply_action("42", "move", target_folder=None))
+        fake_imap.create.assert_not_called()
+        fake_imap.copy.assert_not_called()
+        fake_imap.uid.assert_not_called()
+
+    def test_apply_action_returns_false_when_source_mailbox_select_fails(self):
+        fake_imap = Mock()
+        fake_imap.select.return_value = ("NO", [b"no such mailbox"])
+
+        client = ProtonBridgeClient(
+            ProtonBridgeConfig(host="127.0.0.1", port=1143, username="user@example.com", password="secret")
+        )
+        client.imap_connection = fake_imap
+
+        self.assertFalse(client.apply_action("42", "delete", mailbox="MissingMailbox"))
+        fake_imap.create.assert_not_called()
+        fake_imap.copy.assert_not_called()
+        fake_imap.uid.assert_not_called()
+
     def test_apply_action_uses_uid_move_when_available(self):
         fake_imap = Mock()
         fake_imap.create.return_value = ("OK", [])
