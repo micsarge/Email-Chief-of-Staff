@@ -26,6 +26,7 @@ All notable changes to this project will be documented in this file.
 - Proton Bridge config now supports `PROTON_BRIDGE_TRASH_MAILBOX`
 - Provider matching for YAML `providers` now checks sender identity only (no subject/preview provider matches)
 - Review, dashboard, and cleanup flows now preserve and execute folder-targeted move actions
+- Proton folder routing now uses exact official no-reply sender addresses instead of broad Proton substring matching
 
 ### Fixed
 - Cleanup flows now skip stale IMAP message IDs instead of failing the full request

@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
+import re
 from typing import List, Optional
 
 import yaml
@@ -164,11 +165,21 @@ def build_default_rules() -> List[Rule]:
         text = f"{message.subject} {message.sender} {message.preview}".lower()
         return "fcc" in text and "license" in text
 
+    def extract_sender_email(sender: str) -> str:
+        sender = (sender or "").strip().lower()
+        match = re.search(r"<([^>]+)>", sender)
+        if match:
+            return match.group(1).strip().lower()
+        return sender
+
     def is_proton_folder_candidate(message: MailMessage) -> bool:
-        sender_text = (message.sender or "").lower()
-        if "proton" not in sender_text:
-            return False
-        if "micsarge" in sender_text or "deb.lengyel" in sender_text:
+        sender_email = extract_sender_email(message.sender)
+        allowed_senders = {
+            "no-reply@proton.me",
+            "no-reply@mail.proton.me",
+            "no-reply@notify.proton.me",
+        }
+        if sender_email not in allowed_senders:
             return False
         return True
 

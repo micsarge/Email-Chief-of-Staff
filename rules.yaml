@@ -48,4 +48,6 @@ rules:
     reason: Route Proton-related mail to the Proton folder unless it is from your own accounts.
     match:
       providers:
-        - proton
+        - no-reply@proton.me
+        - no-reply@mail.proton.me
+        - no-reply@notify.proton.me

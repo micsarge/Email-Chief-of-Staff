@@ -2,7 +2,7 @@ import unittest
 from datetime import date, timedelta
 
 from src.mailbox import MailMessage
-from src.rules import RuleEngine, build_default_rules
+from src.rules import RuleEngine, build_default_rules, load_rules_from_yaml
 
 
 class RuleEngineTests(unittest.TestCase):
@@ -41,8 +41,8 @@ class RuleEngineTests(unittest.TestCase):
         engine = RuleEngine(build_default_rules())
         message = MailMessage(
             id="2a",
-            subject="Proton is now SOC 2 Type II audited",
-            sender='"Proton for Business" <business-updates@proton.me>',
+            subject="Your Proton Mail recovery email address is no longer verified",
+            sender='"Proton" <no-reply@mail.proton.me>',
             date="",
             preview="",
         )
@@ -54,8 +54,8 @@ class RuleEngineTests(unittest.TestCase):
         self.assertEqual(result.action.target_folder, "Folders/Proton")
 
         excluded_senders = [
-            '"Michael Sargent" <micsarge@cfl.rr.com>',
-            '"Deb Lengyel" <deb.lengyel@example.com>',
+            '"Proton" <support@protonmail.zendesk.com>',
+            '"Proton" <votejwshaw.protonmail.com@send.eomail6.com>',
         ]
         for index, sender in enumerate(excluded_senders, start=1):
             excluded_message = MailMessage(
@@ -68,6 +68,31 @@ class RuleEngineTests(unittest.TestCase):
 
             excluded_result = engine.evaluate(excluded_message)
             self.assertTrue(excluded_result.action is None or excluded_result.action.action != "move")
+
+    def test_yaml_proton_rule_uses_exact_sender_addresses(self):
+        engine = RuleEngine(load_rules_from_yaml())
+
+        allowed_message = MailMessage(
+            id="2b",
+            subject="Your Proton Mail recovery email address is no longer verified",
+            sender='"Proton" <no-reply@mail.proton.me>',
+            date="",
+            preview="",
+        )
+        allowed_result = engine.evaluate(allowed_message)
+        self.assertIsNotNone(allowed_result.action)
+        self.assertEqual(allowed_result.action.action, "move")
+        self.assertEqual(allowed_result.action.target_folder, "Folders/Proton")
+
+        rejected_message = MailMessage(
+            id="2c",
+            subject="Proton update",
+            sender='"Proton for Business" <business-updates@proton.me>',
+            date="",
+            preview="",
+        )
+        rejected_result = engine.evaluate(rejected_message)
+        self.assertTrue(rejected_result.action is None or rejected_result.action.action != "move")
 
     def test_rules_delete_old_informed_delivery_messages(self):
         engine = RuleEngine(build_default_rules())
