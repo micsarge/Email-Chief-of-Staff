@@ -58,7 +58,7 @@ class ReviewQueueTests(unittest.TestCase):
             )
             item = ReviewItem(
                 message=message,
-                result=RuleResult(message=message, action=RuleAction(action="move", reason="Test", target_folder="Proton")),
+                result=RuleResult(message=message, action=RuleAction(action="move", reason="Test", target_folder="Folders/Proton")),
             )
             queue = ReviewQueue(items=[item], state_path=state_path)
             queue.save_state()
@@ -67,7 +67,7 @@ class ReviewQueueTests(unittest.TestCase):
             loaded.load_state()
 
             self.assertEqual(loaded.items[0].result.action.action, "move")
-            self.assertEqual(loaded.items[0].result.action.target_folder, "Proton")
+            self.assertEqual(loaded.items[0].result.action.target_folder, "Folders/Proton")
         finally:
             if os.path.exists(state_path):
                 os.remove(state_path)

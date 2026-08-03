@@ -51,7 +51,7 @@ class RuleEngineTests(unittest.TestCase):
 
         self.assertIsNotNone(result.action)
         self.assertEqual(result.action.action, "move")
-        self.assertEqual(result.action.target_folder, "Proton")
+        self.assertEqual(result.action.target_folder, "Folders/Proton")
 
         excluded_senders = [
             '"Michael Sargent" <micsarge@cfl.rr.com>',

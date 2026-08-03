@@ -199,7 +199,7 @@ def build_default_rules() -> List[Rule]:
             action=RuleAction(
                 action="move",
                 reason="Route Proton-related mail to the Proton folder unless it is from your own accounts.",
-                target_folder="Proton",
+                target_folder="Folders/Proton",
             ),
         ),
     ]

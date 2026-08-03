@@ -115,10 +115,10 @@ class ProtonBridgeClientTests(unittest.TestCase):
         )
         client.imap_connection = fake_imap
 
-        self.assertTrue(client.apply_action("42", "move", target_folder="Proton"))
+        self.assertTrue(client.apply_action("42", "move", target_folder="Folders/Proton"))
 
-        fake_imap.create.assert_called_once_with("Proton")
-        fake_imap.uid.assert_called_once_with("MOVE", "321", "Proton")
+        fake_imap.create.assert_called_once_with("Folders/Proton")
+        fake_imap.uid.assert_called_once_with("MOVE", "321", "Folders/Proton")
         fake_imap.copy.assert_not_called()
         fake_imap.store.assert_not_called()
         fake_imap.expunge.assert_not_called()

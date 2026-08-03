@@ -44,7 +44,7 @@ rules:
 
   - name: move-non-affiliated-proton-mail
     action: move
-    target_folder: Proton
+    target_folder: Folders/Proton
     reason: Route Proton-related mail to the Proton folder unless it is from your own accounts.
     match:
       providers:
