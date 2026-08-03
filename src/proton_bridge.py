@@ -139,6 +139,23 @@ class ProtonBridgeClient:
         expunge_status, _ = imap.expunge()
         return expunge_status in {"OK", "NO"}
 
+    def _copy_message_by_uid(self, message_id: str, folder_name: str, message_uid: str = "") -> bool:
+        imap = self._ensure_imap()
+        sequence_id = self._sequence_id(message_id)
+
+        create_status, _ = imap.create(folder_name)
+        if create_status not in {"OK", "NO"}:
+            return False
+
+        uid_value = message_uid or self._sequence_to_uid(message_id)
+        if uid_value:
+            uid_copy_status, _ = imap.uid("COPY", uid_value, folder_name)
+            if uid_copy_status == "OK":
+                return True
+
+        copy_status, _ = imap.copy(sequence_id, folder_name)
+        return copy_status == "OK"
+
     def _target_folder_for_action(self, action: str, target_folder: str | None = None) -> str | None:
         if action == "archive":
             return "Archive"
@@ -162,6 +179,14 @@ class ProtonBridgeClient:
                 select_status, _ = self._select_mailbox(mailbox)
                 if select_status != "OK":
                     return False
+
+            if action == "delete" and mailbox and "all mail" in mailbox.lower():
+                # In All Mail context, copy to Trash is more reliable than MOVE/delete semantics.
+                return self._copy_message_by_uid(
+                    message_id,
+                    self.config.trash_mailbox,
+                    message_uid=message_uid,
+                )
 
             folder_name = self._target_folder_for_action(action, target_folder=target_folder)
             if not folder_name:

@@ -27,6 +27,7 @@ All notable changes to this project will be documented in this file.
 - Provider matching for YAML `providers` now checks sender identity only (no subject/preview provider matches)
 - Review, dashboard, and cleanup flows now preserve and execute folder-targeted move actions
 - Proton folder routing now uses exact official no-reply sender addresses instead of broad Proton substring matching
+- Review queue dedupe now skips All Mail items when the same `internet_message_id` is already present in INBOX
 
 ### Fixed
 - Cleanup flows now skip stale IMAP message IDs instead of failing the full request
@@ -34,6 +35,7 @@ All notable changes to this project will be documented in this file.
 - Proton All Mail cleanup now handles mailbox names with spaces and UID/sequence differences correctly
 - Cleanup now avoids retrying messages already present in Trash when those same messages also appear in All Mail
 - Sunday cleanup verified end-to-end with permanent Trash purge (`TRASH_BEFORE 140` -> `TRASH_AFTER 0`)
+- All Mail delete execution now uses copy-to-trash semantics so informed-delivery messages reliably appear in Trash
 
 ## [0.1.0] - 2026-07-31
 

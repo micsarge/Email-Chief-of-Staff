@@ -227,6 +227,11 @@ def build_review_queue():
 
     scan_mailboxes = load_scan_mailboxes()
     messages = reader.fetch_all_messages(mailboxes=scan_mailboxes)
+    inbox_message_ids = {
+      message.internet_message_id.strip().lower()
+      for message in messages
+      if message.mailbox == cfg.mailbox and message.internet_message_id
+    }
     trashed_message_ids = _collect_trashed_message_ids(reader, cfg.trash_mailbox)
     proton_message_ids = _collect_folder_message_ids(reader, PROTON_FOLDER)
     queue = ReviewQueue(state_path=str(STATE_PATH))
@@ -239,6 +244,9 @@ def build_review_queue():
 
         if normalized_message_id and normalized_message_id in proton_message_ids and message.mailbox != PROTON_FOLDER:
             continue
+
+        if normalized_message_id and "all mail" in message.mailbox.lower() and normalized_message_id in inbox_message_ids:
+          continue
 
         dedupe_key = message.internet_message_id or f"{message.mailbox}:{message.uid or message.id}"
         if dedupe_key in seen_keys:

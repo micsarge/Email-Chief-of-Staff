@@ -151,6 +151,45 @@ class ProtonBridgeClientTests(unittest.TestCase):
         fake_imap.store.assert_called_once_with("42", "+FLAGS.SILENT", "\\Deleted")
         fake_imap.expunge.assert_called_once()
 
+    def test_apply_action_delete_from_all_mail_copies_to_trash_without_source_delete(self):
+        fake_imap = Mock()
+        fake_imap.select.return_value = ("OK", [])
+        fake_imap.create.return_value = ("OK", [])
+        fake_imap.uid.return_value = ("OK", [b"copied"])
+
+        client = ProtonBridgeClient(
+            ProtonBridgeConfig(host="127.0.0.1", port=1143, username="user@example.com", password="secret")
+        )
+        client.imap_connection = fake_imap
+
+        ok = client.apply_action("All Mail::112", "delete", mailbox="All Mail", message_uid="112")
+
+        self.assertTrue(ok)
+        fake_imap.uid.assert_called_once_with("COPY", "112", "Trash")
+        fake_imap.copy.assert_not_called()
+        fake_imap.store.assert_not_called()
+        fake_imap.expunge.assert_not_called()
+
+    def test_apply_action_delete_from_all_mail_falls_back_to_sequence_copy_when_uid_copy_fails(self):
+        fake_imap = Mock()
+        fake_imap.select.return_value = ("OK", [])
+        fake_imap.create.return_value = ("OK", [])
+        fake_imap.uid.return_value = ("NO", [b"uid copy unsupported"])
+        fake_imap.copy.return_value = ("OK", [])
+
+        client = ProtonBridgeClient(
+            ProtonBridgeConfig(host="127.0.0.1", port=1143, username="user@example.com", password="secret")
+        )
+        client.imap_connection = fake_imap
+
+        ok = client.apply_action("All Mail::112", "delete", mailbox="All Mail", message_uid="112")
+
+        self.assertTrue(ok)
+        fake_imap.uid.assert_called_once_with("COPY", "112", "Trash")
+        fake_imap.copy.assert_called_once_with("112", "Trash")
+        fake_imap.store.assert_not_called()
+        fake_imap.expunge.assert_not_called()
+
     def test_apply_action_returns_false_when_move_and_copy_fail(self):
         fake_imap = Mock()
         fake_imap.create.return_value = ("OK", [])

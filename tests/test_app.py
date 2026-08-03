@@ -314,6 +314,73 @@ class TrashDedupingTests(unittest.TestCase):
         mock_queue.add.assert_called_once()
         self.assertIs(queue, mock_queue)
 
+    @patch("app.main.ReviewQueue")
+    @patch("app.main.RuleEngine")
+    @patch("app.main.load_rules_from_yaml", return_value=[])
+    @patch("app.main.load_scan_mailboxes", return_value=["INBOX", "All Mail"])
+    @patch("app.main.load_proton_bridge_config")
+    @patch("app.main.MailboxReader")
+    @patch("app.main.ProtonBridgeClient")
+    def test_build_review_queue_prefers_inbox_over_duplicate_all_mail_item(
+        self,
+        mock_client_cls,
+        mock_reader_cls,
+        mock_load_cfg,
+        mock_load_scan_mailboxes,
+        mock_load_rules,
+        mock_rule_engine_cls,
+        mock_queue_cls,
+    ):
+        mock_load_cfg.return_value = Mock(trash_mailbox="Trash", mailbox="INBOX")
+
+        inbox_message = MailMessage(
+            id="INBOX::10",
+            subject="USPS Informed Delivery",
+            sender='"USPS Informed Delivery" <digest@email.informeddelivery.usps.com>',
+            date="",
+            preview="",
+            mailbox="INBOX",
+            uid="10",
+            internet_message_id="<same@id>",
+        )
+        all_mail_message = MailMessage(
+            id="All Mail::10",
+            subject="USPS Informed Delivery",
+            sender='"USPS Informed Delivery" <digest@email.informeddelivery.usps.com>',
+            date="",
+            preview="",
+            mailbox="All Mail",
+            uid="10",
+            internet_message_id="<same@id>",
+        )
+
+        mock_reader = Mock()
+        mock_reader.fetch_all_messages.return_value = [inbox_message, all_mail_message]
+        mock_reader.fetch_messages_for_mailbox.return_value = []
+        mock_reader_cls.return_value = mock_reader
+
+        mock_rule_engine = Mock()
+        mock_rule_engine.evaluate.return_value = RuleResult(
+            message=inbox_message,
+            action=RuleAction(action="delete", reason="Test"),
+        )
+        mock_rule_engine_cls.return_value = mock_rule_engine
+
+        mock_queue = Mock()
+        mock_queue.items = []
+        mock_queue.load_state.return_value = {}
+        mock_queue_cls.return_value = mock_queue
+
+        from app.main import build_review_queue
+
+        queue, messages = build_review_queue()
+
+        self.assertEqual(messages, [inbox_message, all_mail_message])
+        mock_queue.add.assert_called_once()
+        added_item = mock_queue.add.call_args[0][0]
+        self.assertEqual(added_item.message.mailbox, "INBOX")
+        self.assertIs(queue, mock_queue)
+
 
 if __name__ == "__main__":
     unittest.main()
